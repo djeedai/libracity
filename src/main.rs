@@ -30,39 +30,112 @@ impl Plate {
 }
 
 struct Cursor {
-    pos: (i32, i32),
+    pos: IVec2,
     move_speed: f32,
+    weight: f32,
+    cursor_mesh: Handle<Mesh>,
+    cursor_mat: Handle<StandardMaterial>,
+    plate: Entity,
 }
 
 struct Grid {
-    size: (i32, i32),
+    size: IVec2,
+    content: Vec<f32>,
 }
 
 impl Grid {
     pub fn new() -> Grid {
-        Grid { size: (8, 8) }
+        let size = IVec2::new(8, 8);
+        let mut content = Vec::<f32>::new();
+        content.resize(size.x as usize * size.y as usize, 0f32);
+        Grid { size, content }
     }
 
-    pub fn min_pos(&self) -> (i32, i32) {
-        let x_min = -self.size.0 / 2;
-        let y_min = -self.size.1 / 2;
-        (x_min, y_min)
+    pub fn set_size(&mut self, x: i32, y: i32) {
+        self.size = IVec2::new(x, y);
+        self.clear();
     }
 
-    pub fn max_pos(&self) -> (i32, i32) {
-        let x_max = (self.size.0 - 1) / 2;
-        let y_max = (self.size.1 - 1) / 2;
-        (x_max, y_max)
+    pub fn min_pos(&self) -> IVec2 {
+        let x_min = -self.size.x / 2;
+        let y_min = -self.size.y / 2;
+        IVec2::new(x_min, y_min)
     }
 
-    pub fn clamp(&self, pos: (i32, i32)) -> (i32, i32) {
-        let (x_min, y_min) = self.min_pos();
-        let (x_max, y_max) = self.max_pos();
-        (pos.0.clamp(x_min, x_max), pos.1.clamp(y_min, y_max))
+    pub fn max_pos(&self) -> IVec2 {
+        let x_max = (self.size.x - 1) / 2;
+        let y_max = (self.size.y - 1) / 2;
+        IVec2::new(x_max, y_max)
     }
 
-    pub fn cell_size(&self) -> (f32, f32) {
-        (1.0 / self.size.0 as f32, 1.0 / self.size.1 as f32)
+    pub fn clamp(&self, pos: IVec2) -> IVec2 {
+        let min = self.min_pos();
+        let max = self.max_pos();
+        IVec2::new(pos.x.clamp(min.x, max.x), pos.y.clamp(min.y, max.y))
+    }
+
+    pub fn cell_size(&self) -> Vec2 {
+        Vec2::new(1.0 / self.size.x as f32, 1.0 / self.size.y as f32)
+    }
+
+    pub fn hit_test(&self, pos: &Vec2) -> Option<IVec2> {
+        let min = self.min_pos();
+        let max = self.max_pos();
+        if pos.x <= min.x as f32
+            || pos.x >= max.x as f32
+            || pos.y <= min.y as f32
+            || pos.y >= max.y as f32
+        {
+            None
+        } else {
+            let cs = self.cell_size();
+            let x = (pos.x / cs.x) as i32;
+            let y = (pos.y / cs.y) as i32;
+            Some(IVec2::new(x, y))
+        }
+    }
+
+    pub fn index(&self, pos: &IVec2) -> usize {
+        let min = self.min_pos();
+        let i0 = (pos.x - min.x) as usize;
+        let j0 = (pos.y - min.y) as usize;
+        i0 + j0 * self.size.x as usize
+    }
+
+    pub fn fpos(&self, pos: &IVec2) -> Vec2 {
+        let cs = self.cell_size();
+        Vec2::new((pos.x as f32 + 0.5) * cs.x, (pos.y as f32 + 0.5) * cs.y)
+    }
+
+    pub fn spawn(&mut self, pos: &IVec2, weight: f32) {
+        let index = self.index(pos);
+        self.content[index] += weight;
+    }
+
+    pub fn calc_rot(&self) -> Quat {
+        let min = self.min_pos();
+        let max = self.max_pos();
+        let mut w00 = Vec2::ZERO;
+        //println!("calc_rot: min={:?} max={:?}", min, max);
+        for j in min.y..max.y + 1 {
+            for i in min.x..max.x + 1 {
+                let index = self.index(&IVec2::new(i, j));
+                //println!("calc_rot: index={:?}", index);
+                let pos = Vec2::new(i as f32 + 0.5, j as f32 + 0.5);
+                w00 += self.content[index] * pos;
+            }
+        }
+        let rot_x = FRAC_PI_6 * w00.x * 0.05;
+        let rot_y = FRAC_PI_6 * w00.y * 0.05;
+        //println!("calc_rot: w00={:?} rx={} ry={}", w00, rot_x, rot_y);
+        Quat::from_rotation_x(rot_y) * Quat::from_rotation_z(-rot_x)
+    }
+
+    pub fn clear(&mut self) {
+        println!("CLEAR TABLE");
+        self.content.clear();
+        self.content
+            .resize(self.size.x as usize * self.size.y as usize, 0.0);
     }
 }
 
@@ -84,9 +157,10 @@ fn main() {
         // .insert_resource(ClearColor(Color::rgb(0.9, 0.9, 0.9)))
         .insert_resource(Grid::new())
         .add_startup_system(setup3d.system())
-        .add_system(plate_movement_system.system().label("plate"))
-        .add_system(draw_debug_axes_system.system().after("plate"))
+        .add_system(plate_movement_system.system().label("plate_move"))
+        .add_system(draw_debug_axes_system.system().after("plate_move"))
         .add_system(cursor_movement_system.system())
+        .add_system(plate_balance_system.system())
         .run();
 }
 
@@ -158,33 +232,63 @@ fn plate_movement_system(
 
 fn cursor_movement_system(
     time: Res<Time>,
-    grid: Res<Grid>,
+    mut grid: ResMut<Grid>,
+    mut commands: Commands,
     keyboard_input: Res<Input<KeyCode>>,
     mut query: Query<(&mut Cursor, &mut Transform)>,
 ) {
     if let Ok((mut cursor, mut transform)) = query.single_mut() {
-        let mut pos_x = cursor.pos.0;
-        let mut pos_y = cursor.pos.1;
+        let mut moved = false;
         if keyboard_input.just_pressed(KeyCode::Left) || keyboard_input.just_pressed(KeyCode::A) {
-            pos_x -= 1;
+            cursor.pos.x -= 1;
+            moved = true;
         }
         if keyboard_input.just_pressed(KeyCode::Right) || keyboard_input.just_pressed(KeyCode::D) {
-            pos_x += 1;
+            cursor.pos.x += 1;
+            moved = true;
         }
         if keyboard_input.just_pressed(KeyCode::Up) || keyboard_input.just_pressed(KeyCode::W) {
-            pos_y += 1;
+            cursor.pos.y += 1;
+            moved = true;
         }
         if keyboard_input.just_pressed(KeyCode::Down) || keyboard_input.just_pressed(KeyCode::S) {
-            pos_y -= 1;
+            cursor.pos.y -= 1;
+            moved = true;
         }
-        cursor.pos = grid.clamp((pos_x, pos_y));
-        //let delta_pos = cursor.move_speed * time.delta_seconds();
-        let translation = &mut transform.translation;
-        *translation = Vec3::new(
-            (cursor.pos.0 as f32 + 0.5) * grid.cell_size().0,
-            0.1,
-            (cursor.pos.1 as f32 + 0.5) * grid.cell_size().1,
-        );
+        if moved {
+            cursor.pos = grid.clamp(cursor.pos);
+            //let delta_pos = cursor.move_speed * time.delta_seconds();
+            let translation = &mut transform.translation;
+            *translation = Vec3::new(
+                (cursor.pos.x as f32 + 0.5) * grid.cell_size().x,
+                0.1,
+                (cursor.pos.y as f32 + 0.5) * grid.cell_size().y,
+            );
+        }
+
+        if keyboard_input.just_pressed(KeyCode::Space) {
+            grid.spawn(&cursor.pos, cursor.weight);
+            let fpos = grid.fpos(&cursor.pos);
+            commands
+                .spawn_bundle(PbrBundle {
+                    mesh: cursor.cursor_mesh.clone(),
+                    material: cursor.cursor_mat.clone(),
+                    transform: Transform::from_translation(Vec3::new(fpos.x, 0.1, fpos.y)),
+                    ..Default::default()
+                })
+                .insert(Parent(cursor.plate));
+        }
+
+        if keyboard_input.just_pressed(KeyCode::C) {
+            grid.clear();
+        }
+    }
+}
+
+fn plate_balance_system(grid: Res<Grid>, mut query: Query<(&Plate, &mut Transform)>) {
+    if let Ok((plate, mut transform)) = query.single_mut() {
+        let rot = grid.calc_rot();
+        transform.rotation = rot;
     }
 }
 
@@ -197,7 +301,7 @@ fn setup3d(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     // Setup grid
-    grid.size = (8, 8);
+    grid.set_size(8, 8);
 
     // Create grid texture
     const TEX_SIZE: u32 = 32;
@@ -249,6 +353,7 @@ fn setup3d(
     //     material: materials.add(Color::rgb(0.3, 0.5, 0.3).into()),
     //     ..Default::default()
     // });
+
     // Plate
     let plate = commands
         .spawn()
@@ -256,15 +361,16 @@ fn setup3d(
         .insert(GlobalTransform::identity())
         .insert(Plate::new())
         .id();
-    // Base
-    let (x_min, y_min) = grid.min_pos();
-    let (x_max, y_max) = grid.max_pos();
+
+    // Grid blocks
+    let min = grid.min_pos();
+    let max = grid.max_pos();
     let cell_size = grid.cell_size();
-    let cell_mesh = meshes.add(Mesh::from(shape::Box::new(cell_size.0, 0.1, cell_size.1)));
-    for j in y_min..y_max + 1 {
-        let y = (j as f32 + 0.5) * cell_size.1;
-        for i in x_min..x_max + 1 {
-            let x = (i as f32 + 0.5) * cell_size.0;
+    let cell_mesh = meshes.add(Mesh::from(shape::Box::new(cell_size.x, 0.1, cell_size.y)));
+    for j in min.y..max.y + 1 {
+        let y = (j as f32 + 0.5) * cell_size.x;
+        for i in min.x..max.x + 1 {
+            let x = (i as f32 + 0.5) * cell_size.y;
             commands
                 .spawn_bundle(PbrBundle {
                     mesh: cell_mesh.clone(),
@@ -275,27 +381,38 @@ fn setup3d(
                 .insert(Parent(plate));
         }
     }
-    // cursor
+
+    // Cursor
+    let cursor_mesh = meshes.add(Mesh::from(shape::Cube { size: 0.1 }));
+    let cursor_mat = materials.add(Color::rgb(0.6, 0.7, 0.8).into());
+    let cursor = Cursor {
+        pos: IVec2::ZERO,
+        move_speed: 1.0,
+        weight: 1.0,
+        cursor_mesh: cursor_mesh.clone(),
+        cursor_mat: cursor_mat.clone(),
+        plate,
+    };
+    let fpos = grid.fpos(&cursor.pos);
     commands
         .spawn_bundle(PbrBundle {
-            mesh: meshes.add(Mesh::from(shape::Cube { size: 0.1 })),
-            material: materials.add(Color::rgb(0.6, 0.7, 0.8).into()),
-            transform: Transform::from_translation(Vec3::new(0.0, 0.1, 0.0)), // Transform::from_rotation(Quat::from_rotation_y(FRAC_PI_2)), // *
+            mesh: cursor_mesh,
+            material: cursor_mat,
+            transform: Transform::from_translation(Vec3::new(fpos.x, 0.1, fpos.y)),
             ..Default::default()
         })
         .insert(Parent(plate))
-        .insert(Cursor {
-            pos: (0, 0),
-            move_speed: 1.0,
-        });
-    // light
+        .insert(cursor);
+
+    // Light
     commands.spawn_bundle(LightBundle {
         transform: Transform::from_xyz(4.0, 8.0, 4.0),
         ..Default::default()
     });
-    // camera
+
+    // Camera
     commands.spawn_bundle(PerspectiveCameraBundle {
-        transform: Transform::from_xyz(-1.0, 1.5, 3.0).looking_at(Vec3::ZERO, Vec3::Y),
+        transform: Transform::from_xyz(-0.7, 1.0, 2.0).looking_at(Vec3::ZERO, Vec3::Y),
         ..Default::default()
     });
 }
