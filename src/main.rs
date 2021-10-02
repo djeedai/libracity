@@ -156,6 +156,11 @@ fn main() {
     let mut diag = LogDiagnosticsPlugin::default();
     diag.debug = true;
     App::build()
+        .insert_resource(WindowDescriptor {
+            title: "Libra City".to_string(),
+            vsync: true,
+            ..Default::default()
+        })
         .insert_resource(Msaa { samples: 4 })
         .add_plugins(DefaultPlugins)
         .add_plugin(DebugLinesPlugin)
