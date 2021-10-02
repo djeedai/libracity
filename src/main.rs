@@ -41,18 +41,26 @@ struct Cursor {
 struct Grid {
     size: IVec2,
     content: Vec<f32>,
+    /// Origin offset. Odd sizes have the middle cell of the grid at the world origin, while even sizes
+    /// are offset by 0.5 units such that the center of the grid (between cells) is at the world origin.
+    foffset: Vec2,
 }
 
 impl Grid {
     pub fn new() -> Grid {
-        let size = IVec2::new(8, 8);
-        let mut content = Vec::<f32>::new();
-        content.resize(size.x as usize * size.y as usize, 0f32);
-        Grid { size, content }
+        let mut grid = Grid {
+            size: IVec2::ZERO,
+            content: vec![],
+            foffset: Vec2::ZERO,
+        };
+        grid.set_size(8, 8);
+        grid
     }
 
     pub fn set_size(&mut self, x: i32, y: i32) {
+        println!("Grid::set_size({}, {})", x, y);
         self.size = IVec2::new(x, y);
+        self.foffset = Vec2::new((1 - self.size.x % 2) as f32, (1 - self.size.y % 2) as f32) * 0.5;
         self.clear();
     }
 
@@ -102,9 +110,13 @@ impl Grid {
         i0 + j0 * self.size.x as usize
     }
 
+    /// Position of the center of the cell from its grid coordinates.
     pub fn fpos(&self, pos: &IVec2) -> Vec2 {
         let cs = self.cell_size();
-        Vec2::new((pos.x as f32 + 0.5) * cs.x, (pos.y as f32 + 0.5) * cs.y)
+        Vec2::new(
+            (pos.x as f32 + self.foffset.x) * cs.x,
+            (pos.y as f32 + self.foffset.y) * cs.y,
+        )
     }
 
     pub fn spawn(&mut self, pos: &IVec2, weight: f32) {
@@ -119,10 +131,11 @@ impl Grid {
         //println!("calc_rot: min={:?} max={:?}", min, max);
         for j in min.y..max.y + 1 {
             for i in min.x..max.x + 1 {
-                let index = self.index(&IVec2::new(i, j));
+                let ij = IVec2::new(i, j);
+                let index = self.index(&ij);
                 //println!("calc_rot: index={:?}", index);
-                let pos = Vec2::new(i as f32 + 0.5, j as f32 + 0.5);
-                w00 += self.content[index] * pos;
+                let fpos = self.fpos(&ij);
+                w00 += self.content[index] * fpos;
             }
         }
         let rot_x = FRAC_PI_6 * w00.x * 0.05;
@@ -258,12 +271,9 @@ fn cursor_movement_system(
         if moved {
             cursor.pos = grid.clamp(cursor.pos);
             //let delta_pos = cursor.move_speed * time.delta_seconds();
+            let fpos = grid.fpos(&cursor.pos);
             let translation = &mut transform.translation;
-            *translation = Vec3::new(
-                (cursor.pos.x as f32 + 0.5) * grid.cell_size().x,
-                0.1,
-                (cursor.pos.y as f32 + 0.5) * grid.cell_size().y,
-            );
+            *translation = Vec3::new(fpos.x, 0.1, fpos.y);
         }
 
         if keyboard_input.just_pressed(KeyCode::Space) {
@@ -292,19 +302,7 @@ fn plate_balance_system(grid: Res<Grid>, mut query: Query<(&Plate, &mut Transfor
     }
 }
 
-/// set up a simple 3D scene
-fn setup3d(
-    asset_server: Res<AssetServer>,
-    mut commands: Commands,
-    mut grid: ResMut<Grid>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut textures: ResMut<Assets<Texture>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    // Setup grid
-    grid.set_size(8, 8);
-
-    // Create grid texture
+fn create_grid_tex() -> Texture {
     const TEX_SIZE: u32 = 32;
     let mut data = Vec::<u8>::with_capacity(TEX_SIZE as usize * TEX_SIZE as usize * 4);
     for j in 0..TEX_SIZE {
@@ -322,14 +320,28 @@ fn setup3d(
             }
         }
     }
-    let texture_handle = textures.add(Texture::new(
+    Texture::new(
         Extent3d::new(TEX_SIZE, TEX_SIZE, 1),
         TextureDimension::D2,
         data,
         TextureFormat::Rgba8Unorm,
-    ));
+    )
+}
+
+/// set up a simple 3D scene
+fn setup3d(
+    asset_server: Res<AssetServer>,
+    mut commands: Commands,
+    mut grid: ResMut<Grid>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut textures: ResMut<Assets<Texture>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    // Setup grid
+    grid.set_size(5, 5);
 
     // Create grid material
+    let texture_handle = textures.add(create_grid_tex());
     let material_handle = materials.add(StandardMaterial {
         base_color_texture: Some(texture_handle.clone()),
         unlit: true,
@@ -369,14 +381,13 @@ fn setup3d(
     let cell_size = grid.cell_size();
     let cell_mesh = meshes.add(Mesh::from(shape::Box::new(cell_size.x, 0.1, cell_size.y)));
     for j in min.y..max.y + 1 {
-        let y = (j as f32 + 0.5) * cell_size.x;
         for i in min.x..max.x + 1 {
-            let x = (i as f32 + 0.5) * cell_size.y;
+            let fpos = grid.fpos(&IVec2::new(i, j));
             commands
                 .spawn_bundle(PbrBundle {
                     mesh: cell_mesh.clone(),
                     material: material_handle.clone(), //materials.add(Color::rgb(0.8, 0.7, 0.6).into()),
-                    transform: Transform::from_translation(Vec3::new(x, 0.0, y)),
+                    transform: Transform::from_translation(Vec3::new(fpos.x, 0.0, fpos.y)),
                     ..Default::default()
                 })
                 .insert(Parent(plate));
@@ -384,7 +395,9 @@ fn setup3d(
     }
 
     // Cursor
-    let cursor_mesh = meshes.add(Mesh::from(shape::Cube { size: 0.1 }));
+    let cursor_mesh = meshes.add(Mesh::from(shape::Cube {
+        size: cell_size.x * 0.9,
+    })); // TODO xy
     let cursor_mat = materials.add(Color::rgb(0.6, 0.7, 0.8).into());
     let cursor = Cursor {
         pos: IVec2::ZERO,
@@ -395,6 +408,7 @@ fn setup3d(
         plate,
     };
     let fpos = grid.fpos(&cursor.pos);
+    println!("Spawn cursor at fpos={:?}", fpos);
     commands
         .spawn_bundle(PbrBundle {
             mesh: cursor_mesh,
@@ -421,30 +435,29 @@ fn setup3d(
     commands.spawn_bundle(UiCameraBundle::default());
 
     // Title
-    commands
-        .spawn_bundle(TextBundle {
-            style: Style {
-                align_self: AlignSelf::FlexEnd,
-                position_type: PositionType::Absolute,
-                position: Rect {
-                    bottom: Val::Px(5.0),
-                    left: Val::Px(15.0),
-                    ..Default::default()
-                },
+    commands.spawn_bundle(TextBundle {
+        style: Style {
+            align_self: AlignSelf::FlexEnd,
+            position_type: PositionType::Absolute,
+            position: Rect {
+                bottom: Val::Px(5.0),
+                left: Val::Px(15.0),
                 ..Default::default()
             },
-            text: Text::with_section(
-                "Libra City",
-                TextStyle {
-                    font: asset_server.load("fonts/pacifico/Pacifico-Regular.ttf"),
-                    font_size: 100.0,
-                    color: Color::rgb_u8(111, 188, 165),
-                },
-                TextAlignment {
-                    horizontal: HorizontalAlign::Left,
-                    ..Default::default()
-                },
-            ),
             ..Default::default()
-        });
+        },
+        text: Text::with_section(
+            "Libra City",
+            TextStyle {
+                font: asset_server.load("fonts/pacifico/Pacifico-Regular.ttf"),
+                font_size: 100.0,
+                color: Color::rgb_u8(111, 188, 165),
+            },
+            TextAlignment {
+                horizontal: HorizontalAlign::Left,
+                ..Default::default()
+            },
+        ),
+        ..Default::default()
+    });
 }
