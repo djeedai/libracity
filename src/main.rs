@@ -12,6 +12,7 @@ use bevy::{
     },
     sprite::collide_aabb::{collide, Collision},
 };
+use bevy_kira_audio::{Audio, AudioChannel, AudioPlugin};
 use bevy_prototype_debug_lines::{DebugLines, DebugLinesPlugin};
 use std::f32::consts::*;
 
@@ -19,6 +20,23 @@ use std::f32::consts::*;
 enum AppState {
     MainMenu,
     InGame,
+}
+
+struct Level {
+    name: String,
+    grid_size: IVec2,
+    balance_factor: f32,
+}
+
+struct GameData {
+    levels: Vec<Level>,
+    current_level_index: i32,
+}
+
+impl GameData {
+    pub fn level(&self) -> &Level {
+        &self.levels[self.current_level_index as usize]
+    }
 }
 
 // fn exit_system(mut exit: EventWriter<AppExit>) {
@@ -59,13 +77,13 @@ impl Grid {
             content: vec![],
             foffset: Vec2::ZERO,
         };
-        grid.set_size(8, 8);
+        grid.set_size(&IVec2::new(8, 8));
         grid
     }
 
-    pub fn set_size(&mut self, x: i32, y: i32) {
-        println!("Grid::set_size({}, {})", x, y);
-        self.size = IVec2::new(x, y);
+    pub fn set_size(&mut self, size: &IVec2) {
+        println!("Grid::set_size({}, {})", size.x, size.y);
+        self.size = *size;
         self.foffset = Vec2::new((1 - self.size.x % 2) as f32, (1 - self.size.y % 2) as f32) * 0.5;
         self.clear();
     }
@@ -130,7 +148,7 @@ impl Grid {
         self.content[index] += weight;
     }
 
-    pub fn calc_rot(&self) -> Quat {
+    pub fn calc_rot(&self, balance_factor: f32) -> Quat {
         let min = self.min_pos();
         let max = self.max_pos();
         let mut w00 = Vec2::ZERO;
@@ -144,8 +162,8 @@ impl Grid {
                 w00 += self.content[index] * fpos;
             }
         }
-        let rot_x = FRAC_PI_6 * w00.x * 0.05;
-        let rot_y = FRAC_PI_6 * w00.y * 0.05;
+        let rot_x = FRAC_PI_6 * w00.x * balance_factor;
+        let rot_y = FRAC_PI_6 * w00.y * balance_factor;
         //println!("calc_rot: w00={:?} rx={} ry={}", w00, rot_x, rot_y);
         Quat::from_rotation_x(rot_y) * Quat::from_rotation_z(-rot_x)
     }
@@ -180,8 +198,26 @@ fn main() {
         })
         .add_plugin(diag)
         //.add_plugin(FrameTimeDiagnosticsPlugin::default())
+        // Audio (Kira)
+        .add_plugin(AudioPlugin)
+        .add_startup_system(start_background_audio.system())
         // Resources
         .insert_resource(Grid::new())
+        .insert_resource(GameData {
+            levels: vec![
+                Level {
+                    name: "Hut".to_string(),
+                    grid_size: IVec2::new(3, 3),
+                    balance_factor: 1.0,
+                },
+                Level {
+                    name: "Village".to_string(),
+                    grid_size: IVec2::new(5, 5),
+                    balance_factor: 0.05,
+                },
+            ],
+            current_level_index: 0,
+        })
         // == MainMenu state ==
         .add_system_set(
             SystemSet::on_enter(AppState::MainMenu).with_system(setup_main_menu.system()),
@@ -207,6 +243,10 @@ fn main() {
         .run();
 }
 
+fn start_background_audio(asset_server: Res<AssetServer>, audio: Res<Audio>) {
+    audio.play_looped(asset_server.load("audio/ambient1.mp3"));
+}
+
 struct MenuData {
     //root_entity: Entity,
     entities: Vec<Entity>,
@@ -216,6 +256,7 @@ fn setup_main_menu(
     asset_server: Res<AssetServer>,
     mut commands: Commands,
     mut materials: ResMut<Assets<ColorMaterial>>,
+    audio: Res<Audio>,
 ) {
     let font = asset_server.load("fonts/pacifico/Pacifico-Regular.ttf");
     let text_align = TextAlignment {
@@ -335,6 +376,9 @@ fn setup_main_menu(
     );
 
     commands.insert_resource(menu_data);
+
+    // let music = asset_server.load("audio/ambient1.mp3");
+    // audio.play(music);
 }
 
 fn handle_ui_buttons(
@@ -473,9 +517,9 @@ fn cursor_movement_system(
     }
 }
 
-fn plate_balance_system(grid: Res<Grid>, mut query: Query<(&Plate, &mut Transform)>) {
+fn plate_balance_system(grid: Res<Grid>, game_data: Res<GameData>, mut query: Query<(&Plate, &mut Transform)>) {
     if let Ok((plate, mut transform)) = query.single_mut() {
-        let rot = grid.calc_rot();
+        let rot = grid.calc_rot(game_data.level().balance_factor);
         transform.rotation = rot;
     }
 }
@@ -508,6 +552,7 @@ fn create_grid_tex() -> Texture {
 
 /// set up a simple 3D scene
 fn setup3d(
+    game_data: Res<GameData>,
     asset_server: Res<AssetServer>,
     mut commands: Commands,
     mut grid: ResMut<Grid>,
@@ -515,8 +560,10 @@ fn setup3d(
     mut textures: ResMut<Assets<Texture>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
+    let level = game_data.level();
+
     // Setup grid
-    grid.set_size(5, 5);
+    grid.set_size(&level.grid_size);
 
     // Create grid material
     let texture_handle = textures.add(create_grid_tex());
@@ -625,7 +672,7 @@ fn setup3d(
             ..Default::default()
         },
         text: Text::with_section(
-            "Libra City",
+            level.name.clone(),
             TextStyle {
                 font: asset_server.load("fonts/pacifico/Pacifico-Regular.ttf"),
                 font_size: 100.0,

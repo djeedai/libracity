@@ -2,7 +2,11 @@
 name = "libracity"
 version = "0.1.0"
 edition = "2018"
+description = "Libra City: city planning on a needle"
+keywords = ["game", "gamedev", "bevy"]
+license = "MIT OR Apache-2.0"
 
 [dependencies]
-bevy = "0.5"
+bevy = { version = "0.5", default-features = false, features = ["render", "bevy_wgpu", "png", "bevy_winit", "bevy_gltf"] }
+bevy_kira_audio = { version = "0.6", features = ["mp3"] }
 bevy_prototype_debug_lines = "0.3"
