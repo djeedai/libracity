@@ -22,20 +22,65 @@ enum AppState {
     InGame,
 }
 
+#[derive(Debug, Clone)]
+struct Buildable {
+    name: String,
+    weight: f32,
+    //stackable: bool,
+}
+
+#[derive(Debug, Clone)]
+struct Inventory {
+    items: Vec<(Buildable, u32)>, // TODO - ref to Buildable static data, not copy
+}
+
+impl Inventory {
+    pub fn empty() -> Inventory {
+        Inventory { items: vec![] }
+    }
+
+    pub fn pop_item(&mut self, index: u32) -> Option<&Buildable> {
+        let index = index as usize;
+        if index < self.items.len() && self.items[index].1 > 0 {
+            self.items[index].1 -= 1;
+            Some(&self.items[index].0)
+        } else {
+            None
+        }
+    }
+
+    pub fn item_count(&self, index: u32) -> u32 {
+        let index = index as usize;
+        self.items[index].1
+    }
+}
+
 struct Level {
     name: String,
     grid_size: IVec2,
     balance_factor: f32,
+    inventory: Inventory,
 }
 
 struct GameData {
     levels: Vec<Level>,
-    current_level_index: i32,
+    current_level_index: u32,
+    inventory: Inventory, // TODO - ref? or just number of items + ref into which items
 }
 
 impl GameData {
     pub fn level(&self) -> &Level {
         &self.levels[self.current_level_index as usize]
+    }
+
+    // pub fn level_mut(&mut self) -> &mut Level {
+    //     let index = self.current_level_index as usize;
+    //     &mut self.levels[index]
+    // }
+
+    pub fn set_level(&mut self, index: u32) {
+        self.current_level_index = index;
+        self.inventory = self.level().inventory.clone();
     }
 }
 
@@ -57,10 +102,17 @@ struct Cursor {
     pos: IVec2,
     move_speed: f32,
     weight: f32,
+    cursor_entity: Option<Entity>,
     cursor_mesh: Handle<Mesh>,
     cursor_mat: Handle<StandardMaterial>,
     plate: Entity,
 }
+
+// impl Cursor {
+//     pub fn set_alpha(&mut self, alpha: f32) {
+//          self.cursor_mat
+//     }
+// }
 
 struct Grid {
     size: IVec2,
@@ -68,6 +120,7 @@ struct Grid {
     /// Origin offset. Odd sizes have the middle cell of the grid at the world origin, while even sizes
     /// are offset by 0.5 units such that the center of the grid (between cells) is at the world origin.
     foffset: Vec2,
+    entities: Vec<Entity>,
 }
 
 impl Grid {
@@ -76,6 +129,7 @@ impl Grid {
             size: IVec2::ZERO,
             content: vec![],
             foffset: Vec2::ZERO,
+            entities: vec![],
         };
         grid.set_size(&IVec2::new(8, 8));
         grid
@@ -85,7 +139,7 @@ impl Grid {
         println!("Grid::set_size({}, {})", size.x, size.y);
         self.size = *size;
         self.foffset = Vec2::new((1 - self.size.x % 2) as f32, (1 - self.size.y % 2) as f32) * 0.5;
-        self.clear();
+        self.clear(None);
     }
 
     pub fn min_pos(&self) -> IVec2 {
@@ -143,9 +197,10 @@ impl Grid {
         )
     }
 
-    pub fn spawn(&mut self, pos: &IVec2, weight: f32) {
+    pub fn spawn_item(&mut self, pos: &IVec2, weight: f32, entity: Entity) {
         let index = self.index(pos);
         self.content[index] += weight;
+        self.entities.push(entity);
     }
 
     pub fn calc_rot(&self, balance_factor: f32) -> Quat {
@@ -168,11 +223,16 @@ impl Grid {
         Quat::from_rotation_x(rot_y) * Quat::from_rotation_z(-rot_x)
     }
 
-    pub fn clear(&mut self) {
+    pub fn clear(&mut self, commands: Option<Commands>) {
         println!("CLEAR TABLE");
         self.content.clear();
         self.content
             .resize(self.size.x as usize * self.size.y as usize, 0.0);
+        if let Some(mut commands) = commands {
+            self.entities.iter().for_each(|ent| {
+                commands.entity(*ent).despawn_recursive();
+            });
+        }
     }
 }
 
@@ -209,14 +269,33 @@ fn main() {
                     name: "Hut".to_string(),
                     grid_size: IVec2::new(3, 3),
                     balance_factor: 1.0,
+                    inventory: Inventory {
+                        items: vec![(
+                            Buildable {
+                                name: "Hut".to_string(),
+                                weight: 1.0,
+                            },
+                            1,
+                        )],
+                    },
                 },
                 Level {
                     name: "Village".to_string(),
                     grid_size: IVec2::new(5, 5),
                     balance_factor: 0.05,
+                    inventory: Inventory {
+                        items: vec![(
+                            Buildable {
+                                name: "Hut".to_string(),
+                                weight: 1.0,
+                            },
+                            3,
+                        )],
+                    },
                 },
             ],
             current_level_index: 0,
+            inventory: Inventory::empty(),
         })
         // == MainMenu state ==
         .add_system_set(
@@ -392,11 +471,18 @@ fn handle_ui_buttons(
     }
 }
 
-fn close_main_menu(mut commands: Commands, menu_data: Res<MenuData>) {
+fn close_main_menu(
+    mut commands: Commands,
+    menu_data: Res<MenuData>,
+    mut game_data: ResMut<GameData>,
+) {
     //commands.entity(menu_data.root_entity).despawn_recursive();
     menu_data.entities.iter().for_each(|ent| {
         commands.entity(*ent).despawn_recursive();
     });
+
+    // Load first level
+    game_data.set_level(0);
 }
 
 fn create_line_mesh() -> Mesh {
@@ -467,6 +553,7 @@ fn plate_movement_system(
 
 fn cursor_movement_system(
     time: Res<Time>,
+    mut game_data: ResMut<GameData>,
     mut grid: ResMut<Grid>,
     mut commands: Commands,
     keyboard_input: Res<Input<KeyCode>>,
@@ -499,25 +586,42 @@ fn cursor_movement_system(
         }
 
         if keyboard_input.just_pressed(KeyCode::Space) {
-            grid.spawn(&cursor.pos, cursor.weight);
-            let fpos = grid.fpos(&cursor.pos);
-            commands
-                .spawn_bundle(PbrBundle {
-                    mesh: cursor.cursor_mesh.clone(),
-                    material: cursor.cursor_mat.clone(),
-                    transform: Transform::from_translation(Vec3::new(fpos.x, 0.1, fpos.y)),
-                    ..Default::default()
-                })
-                .insert(Parent(cursor.plate));
+            if let Some(buildable) = game_data.inventory.pop_item(0) {
+                let fpos = grid.fpos(&cursor.pos);
+                let entity = commands
+                    .spawn_bundle(PbrBundle {
+                        mesh: cursor.cursor_mesh.clone(), // TODO - buildable.mesh
+                        material: cursor.cursor_mat.clone(),
+                        transform: Transform::from_translation(Vec3::new(fpos.x, 0.1, fpos.y)),
+                        ..Default::default()
+                    })
+                    .insert(Parent(cursor.plate))
+                    .id();
+                grid.spawn_item(&cursor.pos, cursor.weight, entity);
+                if game_data.inventory.item_count(0) == 0 {
+                    // No more of this item, change cursor
+                    if let Some(entity) = cursor.cursor_entity {
+                        commands.entity(entity).despawn();
+                        cursor.cursor_entity = None;
+                    }
+                }
+            }
         }
 
         if keyboard_input.just_pressed(KeyCode::C) {
-            grid.clear();
+            // Clear grid
+            grid.clear(Some(commands));
+            // Reset inventory
+            game_data.inventory = game_data.level().inventory.clone();
         }
     }
 }
 
-fn plate_balance_system(grid: Res<Grid>, game_data: Res<GameData>, mut query: Query<(&Plate, &mut Transform)>) {
+fn plate_balance_system(
+    grid: Res<Grid>,
+    game_data: Res<GameData>,
+    mut query: Query<(&Plate, &mut Transform)>,
+) {
     if let Ok((plate, mut transform)) = query.single_mut() {
         let rot = grid.calc_rot(game_data.level().balance_factor);
         transform.rotation = rot;
@@ -624,17 +728,20 @@ fn setup3d(
         size: cell_size.x * 0.9,
     })); // TODO xy
     let cursor_mat = materials.add(Color::rgb(0.6, 0.7, 0.8).into());
-    let cursor = Cursor {
+    // TODO - Not ideal; we need cursor first for the actual world origin based on grid size, but need entity first to populate cursor_entity.
+    //        For now make cursor_entity an Option<> to work around.
+    let mut cursor = Cursor {
         pos: IVec2::ZERO,
         move_speed: 1.0,
         weight: 1.0,
+        cursor_entity: None,
         cursor_mesh: cursor_mesh.clone(),
         cursor_mat: cursor_mat.clone(),
         plate,
     };
     let fpos = grid.fpos(&cursor.pos);
     println!("Spawn cursor at fpos={:?}", fpos);
-    commands
+    let cursor_entity = commands
         .spawn_bundle(PbrBundle {
             mesh: cursor_mesh,
             material: cursor_mat,
@@ -642,7 +749,13 @@ fn setup3d(
             ..Default::default()
         })
         .insert(Parent(plate))
-        .insert(cursor);
+        .id();
+    cursor.cursor_entity = Some(cursor_entity);
+    let cursor_entity = commands.entity(cursor_entity).insert(cursor);
+
+    
+ TODO - Make Cursor some resource, because now once despawn()'ed the Query<> fails so no input work (including clear table)!
+
 
     // Light
     commands.spawn_bundle(LightBundle {
