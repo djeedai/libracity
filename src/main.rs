@@ -294,6 +294,7 @@ fn plate_balance_system(grid: Res<Grid>, mut query: Query<(&Plate, &mut Transfor
 
 /// set up a simple 3D scene
 fn setup3d(
+    asset_server: Res<AssetServer>,
     mut commands: Commands,
     mut grid: ResMut<Grid>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -415,4 +416,35 @@ fn setup3d(
         transform: Transform::from_xyz(-0.7, 1.0, 2.0).looking_at(Vec3::ZERO, Vec3::Y),
         ..Default::default()
     });
+
+    // UI camera
+    commands.spawn_bundle(UiCameraBundle::default());
+
+    // Title
+    commands
+        .spawn_bundle(TextBundle {
+            style: Style {
+                align_self: AlignSelf::FlexEnd,
+                position_type: PositionType::Absolute,
+                position: Rect {
+                    bottom: Val::Px(5.0),
+                    left: Val::Px(15.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            text: Text::with_section(
+                "Libra City",
+                TextStyle {
+                    font: asset_server.load("fonts/pacifico/Pacifico-Regular.ttf"),
+                    font_size: 100.0,
+                    color: Color::rgb_u8(111, 188, 165),
+                },
+                TextAlignment {
+                    horizontal: HorizontalAlign::Left,
+                    ..Default::default()
+                },
+            ),
+            ..Default::default()
+        });
 }
