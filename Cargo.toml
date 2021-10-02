@@ -1,0 +1,8 @@
+[package]
+name = "unstable"
+version = "0.1.0"
+edition = "2018"
+
+[dependencies]
+bevy = "0.5"
+bevy_prototype_debug_lines = "0.3"
