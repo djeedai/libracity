@@ -15,9 +15,15 @@ use bevy::{
 use bevy_prototype_debug_lines::{DebugLines, DebugLinesPlugin};
 use std::f32::consts::*;
 
-fn exit_system(mut exit: EventWriter<AppExit>) {
-    exit.send(AppExit);
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+enum AppState {
+    MainMenu,
+    InGame,
 }
+
+// fn exit_system(mut exit: EventWriter<AppExit>) {
+//     exit.send(AppExit);
+// }
 
 struct Plate {
     rotate_speed: f32,
@@ -156,30 +162,197 @@ fn main() {
     let mut diag = LogDiagnosticsPlugin::default();
     diag.debug = true;
     App::build()
+        // Window
         .insert_resource(WindowDescriptor {
             title: "Libra City".to_string(),
             vsync: true,
             ..Default::default()
         })
+        // .insert_resource(ClearColor(Color::rgb(0.9, 0.9, 0.9)))
         .insert_resource(Msaa { samples: 4 })
+        .add_system(bevy::input::system::exit_on_esc_system.system())
+        // Plugins
         .add_plugins(DefaultPlugins)
         .add_plugin(DebugLinesPlugin)
         .insert_resource(DebugLines {
             depth_test: true,
             ..Default::default()
         })
-        .add_system(bevy::input::system::exit_on_esc_system.system())
         .add_plugin(diag)
         //.add_plugin(FrameTimeDiagnosticsPlugin::default())
-        // .insert_resource(Scoreboard { score: 0 })
-        // .insert_resource(ClearColor(Color::rgb(0.9, 0.9, 0.9)))
+        // Resources
         .insert_resource(Grid::new())
-        .add_startup_system(setup3d.system())
-        .add_system(plate_movement_system.system().label("plate_move"))
-        .add_system(draw_debug_axes_system.system().after("plate_move"))
-        .add_system(cursor_movement_system.system())
-        .add_system(plate_balance_system.system())
+        // == MainMenu state ==
+        .add_system_set(
+            SystemSet::on_enter(AppState::MainMenu).with_system(setup_main_menu.system()),
+        )
+        .add_system_set(
+            SystemSet::on_update(AppState::MainMenu).with_system(handle_ui_buttons.system()),
+        )
+        .add_system_set(
+            SystemSet::on_exit(AppState::MainMenu).with_system(close_main_menu.system()),
+        )
+        // == InGame state ==
+        .add_system_set(SystemSet::on_enter(AppState::InGame).with_system(setup3d.system()))
+        .add_system_set(
+            SystemSet::on_update(AppState::InGame)
+                .with_system(plate_movement_system.system())
+                .with_system(draw_debug_axes_system.system())
+                .with_system(cursor_movement_system.system())
+                .with_system(plate_balance_system.system()),
+        )
+        // Initial state
+        //.add_state(AppState::InGame)
+        .add_state(AppState::MainMenu)
         .run();
+}
+
+struct MenuData {
+    //root_entity: Entity,
+    entities: Vec<Entity>,
+}
+
+fn setup_main_menu(
+    asset_server: Res<AssetServer>,
+    mut commands: Commands,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    let font = asset_server.load("fonts/pacifico/Pacifico-Regular.ttf");
+    let text_align = TextAlignment {
+        horizontal: HorizontalAlign::Center,
+        vertical: VerticalAlign::Center,
+    };
+
+    let mut menu_data = MenuData { entities: vec![] };
+
+    // // Root
+    // let root_entity = commands
+    //     .spawn_bundle(NodeBundle {
+    //         style: Style {
+    //             min_size: Size::new(Val::Px(800.0), Val::Px(600.0)),
+    //             position_type: PositionType::Absolute,
+    //             position: Rect {
+    //                 left: Val::Percent(10.0),
+    //                 right: Val::Percent(10.0),
+    //                 bottom: Val::Percent(10.0),
+    //                 top: Val::Percent(10.0),
+    //                 ..Default::default()
+    //             },
+    //             ..Default::default()
+    //         },
+    //         material: materials.add(Color::rgb(0.15, 0.5, 0.35).into()),
+    //         ..Default::default()
+    //     })
+    //     .id();
+
+    // UI camera
+    menu_data.entities.push(
+        commands
+            .spawn_bundle(UiCameraBundle::default())
+            //.insert(Parent(root_entity))
+            .id(),
+    );
+
+    // Title
+    // Using the NodeBundle from the hack of https://github.com/bevyengine/bevy/issues/676 as a background
+    menu_data.entities.push(
+        commands
+            .spawn_bundle(NodeBundle {
+                style: Style {
+                    min_size: Size::new(Val::Px(800.0), Val::Px(300.0)),
+                    position: Rect::all(Val::Px(0.0)),
+                    position_type: PositionType::Absolute,
+
+                    // I expect one of these to center the text in the node
+                    align_content: AlignContent::Center,
+                    align_items: AlignItems::Center,
+                    align_self: AlignSelf::Center,
+
+                    // this line aligns the content
+                    justify_content: JustifyContent::Center,
+
+                    ..Default::default()
+                },
+                material: materials.add(Color::rgb(0.15, 0.15, 0.15).into()),
+                ..Default::default()
+            })
+            //.insert(Parent(root_entity))
+            .with_children(|parent| {
+                // Title itself
+                parent.spawn_bundle(TextBundle {
+                    text: Text::with_section(
+                        "Libra City",
+                        TextStyle {
+                            font: font.clone(),
+                            font_size: 250.0,
+                            color: Color::rgb_u8(111, 188, 165),
+                        },
+                        text_align,
+                    ),
+                    ..Default::default()
+                });
+            })
+            .id(),
+    );
+    menu_data.entities.push(
+        commands
+            .spawn_bundle(NodeBundle {
+                style: Style {
+                    min_size: Size::new(Val::Px(800.0), Val::Px(300.0)),
+                    position: Rect {
+                        bottom: Val::Px(100.0),
+                        left: Val::Px(0.0),
+                        right: Val::Px(0.0),
+                        ..Default::default()
+                    },
+                    position_type: PositionType::Absolute,
+                    align_content: AlignContent::Center,
+                    align_items: AlignItems::Center,
+                    align_self: AlignSelf::Center,
+                    justify_content: JustifyContent::Center,
+                    ..Default::default()
+                },
+                material: materials.add(Color::rgb(0.15, 0.15, 0.15).into()),
+                ..Default::default()
+            })
+            //.insert(Parent(root_entity))
+            .with_children(|parent| {
+                // Title itself
+                parent.spawn_bundle(TextBundle {
+                    text: Text::with_section(
+                        "Press Start",
+                        TextStyle {
+                            font: font.clone(),
+                            font_size: 80.0,
+                            color: Color::rgb_u8(192, 192, 192),
+                        },
+                        text_align,
+                    ),
+                    ..Default::default()
+                });
+            })
+            .id(),
+    );
+
+    commands.insert_resource(menu_data);
+}
+
+fn handle_ui_buttons(
+    mut keyboard_input: ResMut<Input<KeyCode>>,
+    mut state: ResMut<State<AppState>>,
+) {
+    if keyboard_input.just_pressed(KeyCode::Return) {
+        state.set(AppState::InGame).unwrap();
+        // BUGBUG -- https://bevy-cheatbook.github.io/programming/states.html
+        keyboard_input.reset(KeyCode::Return);
+    }
+}
+
+fn close_main_menu(mut commands: Commands, menu_data: Res<MenuData>) {
+    //commands.entity(menu_data.root_entity).despawn_recursive();
+    menu_data.entities.iter().for_each(|ent| {
+        commands.entity(*ent).despawn_recursive();
+    });
 }
 
 fn create_line_mesh() -> Mesh {
