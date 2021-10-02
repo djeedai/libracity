@@ -282,7 +282,7 @@ fn main() {
                 Level {
                     name: "Village".to_string(),
                     grid_size: IVec2::new(5, 5),
-                    balance_factor: 0.05,
+                    balance_factor: 0.5,
                     inventory: Inventory {
                         items: vec![(
                             Buildable {
@@ -482,7 +482,7 @@ fn close_main_menu(
     });
 
     // Load first level
-    game_data.set_level(0);
+    game_data.set_level(1);
 }
 
 fn create_line_mesh() -> Mesh {
@@ -754,7 +754,7 @@ fn setup3d(
     let cursor_entity = commands.entity(cursor_entity).insert(cursor);
 
     
- TODO - Make Cursor some resource, because now once despawn()'ed the Query<> fails so no input work (including clear table)!
+// TODO - Make Cursor some resource, because now once despawn()'ed the Query<> fails so no input work (including clear table)!
 
 
     // Light
