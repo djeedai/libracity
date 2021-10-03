@@ -458,9 +458,9 @@ fn main() {
             SystemSet::on_enter(AppState::TheEnd).with_system(spawn_end_screen.system()),
         )
         // Initial state
-        .add_state(AppState::MainMenu)
+        //.add_state(AppState::MainMenu)
         //.add_state(AppState::InGame)
-        //.add_state(AppState::TheEnd)
+        .add_state(AppState::TheEnd)
         .run();
 }
 
@@ -1344,16 +1344,17 @@ fn spawn_end_screen(
                 justify_content: JustifyContent::Center,
                 ..Default::default()
             },
-            material: materials2d.add(Color::NONE.into()),
+            //material: materials2d.add(Color::NONE.into()),
+            material: materials2d.add(Color::rgb(0.15, 0.15, 0.15).into()),
             ..Default::default()
         })
         .with_children(|parent| {
             parent
                 .spawn_bundle(NodeBundle {
                     style: Style {
-                        min_size: Size::new(Val::Px(800.0), Val::Px(300.0)),
+                        size: Size::new(Val::Px(800.0), Val::Px(350.0)),
                         position: Rect::all(Val::Px(0.0)),
-                        position_type: PositionType::Absolute,
+                        position_type: PositionType::Relative,
 
                         // I expect one of these to center the text in the node
                         align_content: AlignContent::Center,
@@ -1386,13 +1387,40 @@ fn spawn_end_screen(
                         ),
                         ..Default::default()
                     });
+                });
+
+            parent
+                .spawn_bundle(NodeBundle {
+                    style: Style {
+                        size: Size::new(Val::Px(800.0), Val::Px(100.0)),
+                        position: Rect {
+                            bottom: Val::Px(50.0),
+                            ..Default::default()
+                        },
+                        position_type: PositionType::Absolute,
+
+                        // I expect one of these to center the text in the node
+                        align_content: AlignContent::Center,
+                        align_items: AlignItems::Center,
+                        align_self: AlignSelf::Center,
+
+                        // this line aligns the content
+                        justify_content: JustifyContent::Center,
+
+                        ..Default::default()
+                    },
+                    material: materials2d.add(Color::rgb(0.15, 0.15, 0.15).into()),
+                    ..Default::default()
+                })
+                //.insert(Parent(root_entity))
+                .with_children(|parent| {
                     // Press ESC
                     parent.spawn_bundle(TextBundle {
                         text: Text::with_section(
                             "Press ESCAPE to quit",
                             TextStyle {
-                                font: font.clone(),
-                                font_size: 64.0,
+                                font: asset_server.load("fonts/montserrat/Montserrat-Regular.ttf"), // TODO -- save somewhere
+                                font_size: 48.0,
                                 color: Color::rgb_u8(192, 192, 192),
                             },
                             TextAlignment {
