@@ -22,6 +22,7 @@ use std::f32::consts::*;
 enum AppState {
     MainMenu,
     InGame,
+    TheEnd,
 }
 
 #[derive(Debug, Clone)]
@@ -33,6 +34,21 @@ struct Buildable {
     material: Handle<StandardMaterial>,
     frame_material: Handle<ColorMaterial>,
     frame_material_selected: Handle<ColorMaterial>,
+    frame_material_empty: Handle<ColorMaterial>,
+}
+
+impl Buildable {
+    pub fn get_material(&self, count: u32, selected: bool) -> Handle<ColorMaterial> {
+        if count == 0 {
+            self.frame_material_empty.clone()
+        } else {
+            if selected {
+                self.frame_material_selected.clone()
+            } else {
+                self.frame_material.clone()
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -49,6 +65,10 @@ impl Inventory {
         let index = index as usize;
         if index < self.items.len() && self.items[index].1 > 0 {
             self.items[index].1 -= 1;
+            println!(
+                "Removed 1 item from slot #{}, left: {}",
+                index, self.items[index].1
+            );
             Some(&self.items[index].0)
         } else {
             None
@@ -58,6 +78,19 @@ impl Inventory {
     pub fn item_count(&self, index: u32) -> u32 {
         let index = index as usize;
         self.items[index].1
+    }
+
+    pub fn has_any_item(&self) -> bool {
+        self.items.iter().fold(0u32, |acc, x| acc + x.1) > 0
+    }
+
+    pub fn find_non_empty_slot(&self) -> Option<u32> {
+        for (index, item) in self.items.iter().enumerate() {
+            if item.1 > 0 {
+                return Some(index as u32);
+            }
+        }
+        None
     }
 }
 
@@ -122,16 +155,26 @@ impl GameData {
         }
     }
 
-    pub fn select_prev(&mut self) -> &Buildable {
+    pub fn select_prev(&mut self) -> Option<&Buildable> {
         let len = self.inventory.items.len() as i32;
-        self.current_inventory_index = (self.current_inventory_index + len - 1) % len;
-        &self.inventory.items[self.current_inventory_index as usize].0
+        let prev_index = ((self.current_inventory_index + len - 1) % len) as usize;
+        if self.inventory.items[prev_index].1 > 0 {
+            self.current_inventory_index = prev_index as i32;
+            Some(&self.inventory.items[prev_index].0)
+        } else {
+            None
+        }
     }
 
-    pub fn select_next(&mut self) -> &Buildable {
+    pub fn select_next(&mut self) -> Option<&Buildable> {
         let len = self.inventory.items.len() as i32;
-        self.current_inventory_index = (self.current_inventory_index + 1) % len;
-        &self.inventory.items[self.current_inventory_index as usize].0
+        let next_index = ((self.current_inventory_index + 1) % len) as usize;
+        if self.inventory.items[next_index].1 > 0 {
+            self.current_inventory_index = next_index as i32;
+            Some(&self.inventory.items[next_index].0)
+        } else {
+            None
+        }
     }
 }
 
@@ -383,6 +426,7 @@ fn main() {
         // Resources
         .add_event::<CheckLevelResultEvent>()
         .add_event::<RegenerateInventoryUiEvent>()
+        .add_event::<UpdateInventorySlots>()
         .insert_resource(Grid::new())
         .insert_resource(GameData::new())
         .add_startup_system(load_level_assets.system().label("load_level_assets"))
@@ -409,9 +453,15 @@ fn main() {
                 .with_system(regenerate_inventory_ui.system())
                 .with_system(inventory_ui_system.system()),
         )
+        .add_system_set(SystemSet::on_exit(AppState::InGame).with_system(cleanup3d.system()))
+        // == TheEnd state ==
+        .add_system_set(
+            SystemSet::on_enter(AppState::TheEnd).with_system(spawn_end_screen.system()),
+        )
         // Initial state
-        .add_state(AppState::InGame)
-        //.add_state(AppState::MainMenu)
+        .add_state(AppState::MainMenu)
+        //.add_state(AppState::InGame)
+        //.add_state(AppState::TheEnd)
         .run();
 }
 
@@ -425,6 +475,7 @@ fn check_victory_condition(
     mut query2: Query<(&Cursor, &mut Visible, &mut Transform)>,
     mut query3: Query<&mut Text, With<LevelNameText>>,
     mut ev_regen_ui: EventWriter<RegenerateInventoryUiEvent>,
+    mut state: ResMut<State<AppState>>,
 ) {
     for ev in ev_check_level.iter() {
         let level = game_data.level();
@@ -450,9 +501,9 @@ fn check_victory_condition(
                     *transform =
                         Transform::from_translation(Vec3::new(cursor_fpos.x, 0.1, -cursor_fpos.y))
                             * Transform::from_scale(Vec3::new(
+                                cell_size.x * 3.0,
                                 cell_size.x,
-                                cell_size.x,
-                                cell_size.x,
+                                cell_size.x * 3.0,
                             )); // TODO - xy?
                 }
                 // Change title text
@@ -461,6 +512,9 @@ fn check_victory_condition(
                 }
                 // Reset inventory
                 ev_regen_ui.send(RegenerateInventoryUiEvent {});
+            } else {
+                println!("=== THE END ===");
+                state.set(AppState::TheEnd).unwrap();
             }
         }
     }
@@ -517,6 +571,7 @@ fn load_level_assets(
 
     let color_unselected = Color::rgba(1.0, 1.0, 1.0, 0.5);
     let color_selected = Color::rgba(1.0, 1.0, 1.0, 1.0);
+    let color_empty = Color::rgba(1.0, 0.8, 0.8, 0.5);
 
     // Hut
     let hut_mesh: Handle<Mesh> = asset_server.get_handle("models/hut.gltf#Mesh0/Primitive0");
@@ -533,6 +588,10 @@ fn load_level_assets(
     });
     let hut_frame_material_selected = materials2d.add(ColorMaterial {
         color: color_selected,
+        texture: Some(hut_frame_texture.clone()),
+    });
+    let hut_frame_material_empty = materials2d.add(ColorMaterial {
+        color: color_empty,
         texture: Some(hut_frame_texture),
     });
 
@@ -553,6 +612,10 @@ fn load_level_assets(
     });
     let chieftain_hut_frame_material_selected = materials2d.add(ColorMaterial {
         color: color_selected,
+        texture: Some(chieftain_hut_frame_texture.clone()),
+    });
+    let chieftain_hut_frame_material_empty = materials2d.add(ColorMaterial {
+        color: color_empty,
         texture: Some(chieftain_hut_frame_texture),
     });
 
@@ -571,6 +634,7 @@ fn load_level_assets(
                         material: hut_material.clone(),
                         frame_material: hut_frame_material.clone(),
                         frame_material_selected: hut_frame_material_selected.clone(),
+                        frame_material_empty: hut_frame_material_empty.clone(),
                     },
                     1,
                 ),
@@ -583,6 +647,7 @@ fn load_level_assets(
                         material: chieftain_hut_material.clone(),
                         frame_material: chieftain_hut_frame_material.clone(),
                         frame_material_selected: chieftain_hut_frame_material_selected.clone(),
+                        frame_material_empty: chieftain_hut_frame_material_empty.clone(),
                     },
                     2,
                 ),
@@ -604,6 +669,7 @@ fn load_level_assets(
                     material: hut_material.clone(),
                     frame_material: hut_frame_material.clone(),
                     frame_material_selected: hut_frame_material_selected.clone(),
+                    frame_material_empty: hut_frame_material_empty.clone(),
                 },
                 4,
             )],
@@ -625,6 +691,7 @@ fn load_level_assets(
                         material: hut_material.clone(),
                         frame_material: hut_frame_material.clone(),
                         frame_material_selected: hut_frame_material_selected.clone(),
+                        frame_material_empty: hut_frame_material_empty.clone(),
                     },
                     2,
                 ),
@@ -636,6 +703,7 @@ fn load_level_assets(
                         material: chieftain_hut_material.clone(),
                         frame_material: chieftain_hut_frame_material.clone(),
                         frame_material_selected: chieftain_hut_frame_material_selected.clone(),
+                        frame_material_empty: chieftain_hut_frame_material_empty.clone(),
                     },
                     2,
                 ),
@@ -661,11 +729,12 @@ struct RegenerateInventoryUiEvent;
 struct InventorySlot {
     index: u32,
     count: u32,
+    text: Entity,
 }
 
 impl InventorySlot {
-    pub fn new(index: u32, count: u32) -> InventorySlot {
-        InventorySlot { index, count }
+    pub fn new(index: u32, count: u32, text: Entity) -> InventorySlot {
+        InventorySlot { index, count, text }
     }
 }
 
@@ -674,6 +743,7 @@ fn regenerate_inventory_ui(
     mut ev_regen_ui: EventReader<RegenerateInventoryUiEvent>,
     mut game_data: ResMut<GameData>,
     mut materials2d: ResMut<Assets<ColorMaterial>>,
+    asset_server: Res<AssetServer>,
 ) {
     for ev in ev_regen_ui.iter() {
         println!("regenerate_inventory_ui() -- GOT EVENT!");
@@ -694,31 +764,50 @@ fn regenerate_inventory_ui(
                 .with_children(|parent| {
                     let mut xpos = 100.0 + 200.0 * (game_data.inventory.items.len() - 1) as f32;
                     let mut index = 0;
+                    let font: Handle<Font> =
+                        asset_server.load("fonts/pacifico/Pacifico-Regular.ttf"); // TODO -- save somewhere
                     for (buildable, count) in game_data.inventory.items.iter() {
-                        parent
-                            .spawn_bundle(NodeBundle {
-                                style: Style {
-                                    size: Size::new(Val::Px(128.0), Val::Px(128.0)),
-                                    position_type: PositionType::Absolute,
-                                    position: Rect {
-                                        bottom: Val::Px(100.0),
-                                        right: Val::Px(xpos),
-                                        ..Default::default()
-                                    },
-
-                                    // I expect one of these to center the text in the node
-                                    align_content: AlignContent::Center,
-                                    align_items: AlignItems::Center,
-                                    align_self: AlignSelf::Center,
-
-                                    // this line aligns the content
-                                    justify_content: JustifyContent::Center,
+                        // Item slot with frame and item image
+                        let mut frame = parent.spawn_bundle(NodeBundle {
+                            style: Style {
+                                size: Size::new(Val::Px(128.0), Val::Px(128.0)),
+                                position_type: PositionType::Absolute,
+                                position: Rect {
+                                    bottom: Val::Px(100.0),
+                                    right: Val::Px(xpos),
                                     ..Default::default()
                                 },
-                                material: buildable.frame_material.clone(),
+
+                                // I expect one of these to center the text in the node
+                                align_content: AlignContent::Center,
+                                align_items: AlignItems::Center,
+                                align_self: AlignSelf::Center,
+
+                                // this line aligns the content
+                                justify_content: JustifyContent::Center,
                                 ..Default::default()
+                            },
+                            material: buildable.get_material(*count, index == 0),
+                            ..Default::default()
+                        });
+                        let text = frame
+                            .with_children(|parent| {
+                                // Item count in slot
+                                parent.spawn_bundle(TextBundle {
+                                    text: Text::with_section(
+                                        format!("{}", *count).to_string(),
+                                        TextStyle {
+                                            font: font.clone(),
+                                            font_size: 90.0,
+                                            color: Color::rgb_u8(111, 188, 165),
+                                        },
+                                        Default::default(), // TextAlignment
+                                    ),
+                                    ..Default::default()
+                                });
                             })
-                            .insert(InventorySlot::new(index, *count));
+                            .id();
+                        frame.insert(InventorySlot::new(index, *count, text));
                         xpos -= 200.0;
                         index += 1;
                     }
@@ -728,36 +817,39 @@ fn regenerate_inventory_ui(
     }
 }
 
+struct UpdateInventorySlots;
+
 fn inventory_ui_system(
-    mut commands: Commands,
-    mut keyboard_input: ResMut<Input<KeyCode>>,
+    keyboard_input: ResMut<Input<KeyCode>>,
     mut game_data: ResMut<GameData>,
-    mut materials2d: ResMut<Assets<ColorMaterial>>,
-    mut query: Query<(&InventorySlot, &mut Handle<ColorMaterial>)>,
+    mut query: Query<(&mut InventorySlot, &mut Handle<ColorMaterial>, &Children)>,
+    mut text_query: Query<&mut Text>,
+    mut ev: EventReader<UpdateInventorySlots>,
 ) {
     // Change selected buildable from inventory
     let mut changed = false;
     if keyboard_input.just_pressed(KeyCode::Q) {
-        let buildable = game_data.select_prev();
-        changed = true;
+        if let Some(_buildable) = game_data.select_prev() {
+            changed = true;
+        }
     }
     if keyboard_input.just_pressed(KeyCode::E) || keyboard_input.just_pressed(KeyCode::Tab) {
-        let buildable = game_data.select_next();
-        changed = true;
+        if let Some(_buildable) = game_data.select_next() {
+            changed = true;
+        }
     }
 
     // Update all inventory slots
-    if changed {
+    if changed || ev.iter().count() > 0 {
         let selected_index = game_data.current_inventory_index;
-        println!("inventory_ui_system: CHANGED! sel={}", selected_index);
-        for (slot, mut material) in query.iter_mut() {
-            println!("Slot #{} (sel={})", slot.index, selected_index);
-            let buildable = &game_data.inventory.items[slot.index as usize].0;
-            *material = if slot.index == selected_index as u32 {
-                buildable.frame_material_selected.clone()
-            } else {
-                buildable.frame_material.clone()
-            };
+        println!("UpdateInventorySlots: sel={}", selected_index);
+        for (mut slot, mut material, children) in query.iter_mut() {
+            let mut text = text_query.get_mut(children[0]).unwrap();
+            let (buildable, count) = &game_data.inventory.items[slot.index as usize];
+            slot.count = *count;
+            text.sections[0].value = format!("{}", slot.count).to_string();
+            println!("-- slot: idx={} cnt={}", slot.index, slot.count);
+            *material = buildable.get_material(slot.count, slot.index == selected_index as u32);
         }
     }
 }
@@ -986,6 +1078,7 @@ struct CheckLevelResultEvent();
 
 fn cursor_movement_system(
     mut ev_check_level: EventWriter<CheckLevelResultEvent>,
+    mut ev_update_slots: EventWriter<UpdateInventorySlots>,
     time: Res<Time>,
     mut game_data: ResMut<GameData>,
     mut grid: ResMut<Grid>,
@@ -1022,12 +1115,10 @@ fn cursor_movement_system(
 
         // Spawn buildable at cursor position
         if keyboard_input.just_pressed(KeyCode::Space) {
-            if let Some(buildable) = game_data.inventory.pop_item(0) {
+            let slot_index = game_data.current_inventory_index as u32;
+            if let Some(buildable) = game_data.inventory.pop_item(slot_index) {
                 let fpos = grid.fpos(&cursor.pos);
-                println!(
-                    "Spawn buildable at pos={:?} fpos={:?}: {:?} -- {:?}",
-                    cursor.pos, fpos, buildable.mesh, buildable.material
-                );
+                println!("Spawn buildable at pos={:?} fpos={:?}", cursor.pos, fpos);
                 let cell_size = grid.cell_size();
                 let entity = commands
                     .spawn_bundle(PbrBundle {
@@ -1044,10 +1135,20 @@ fn cursor_movement_system(
                     .insert(Parent(cursor.spawn_root_entity))
                     .id();
                 grid.spawn_item(&cursor.pos, cursor.weight, entity);
-                if game_data.inventory.item_count(0) == 0 {
-                    // No more of this item, hide cursor
-                    visible.is_visible = false;
-                    ev_check_level.send(CheckLevelResultEvent {});
+                // Check if current slot has any item available left
+                if game_data.inventory.item_count(slot_index) == 0 {
+                    // Try to select another slot with some item(s) left
+                    if let Some(index) = game_data.inventory.find_non_empty_slot() {
+                        game_data.current_inventory_index = index as i32;
+                        ev_update_slots.send(UpdateInventorySlots);
+                    } else {
+                        // No more of any item in any slot; hide cursor and check level result
+                        visible.is_visible = false;
+                        ev_check_level.send(CheckLevelResultEvent {});
+                    }
+                } else {
+                    // If current slot still has items, update anyway f
+                    ev_update_slots.send(UpdateInventorySlots);
                 }
             }
         }
@@ -1060,6 +1161,8 @@ fn cursor_movement_system(
             game_data.inventory = game_data.level().inventory.clone();
             // Re-show cursor
             visible.is_visible = true;
+            // Update inventory slots
+            ev_update_slots.send(UpdateInventorySlots);
         }
     }
 }
@@ -1169,7 +1272,8 @@ fn setup3d(
     let mut cursor_entity_cmds = commands.spawn_bundle(PbrBundle {
         mesh: cursor_mesh.clone(),
         material: cursor_mat.clone(),
-        transform: Transform::from_translation(Vec3::new(cursor_fpos.x, 0.1, -cursor_fpos.y)),
+        transform: Transform::from_translation(Vec3::new(cursor_fpos.x, 0.1, -cursor_fpos.y))
+            * Transform::from_scale(Vec3::new(cell_size.x * 3.0, cell_size.x, cell_size.x * 3.0)), // TODO - xy?
         ..Default::default()
     });
     cursor_entity_cmds.insert(Parent(plate));
@@ -1226,4 +1330,90 @@ fn setup3d(
             ..Default::default()
         })
         .insert(LevelNameText); // marker to allow finding this text to change it
+}
+
+fn cleanup3d(mut query: Query<(&mut Visible,)>) {
+    // LAZY HACK -- Hide literally EVERYTHING since we didn't keep track of things we need to hide/despawn
+    for (mut vis,) in query.iter_mut() {
+        vis.is_visible = false;
+    }
+}
+
+fn spawn_end_screen(
+    asset_server: Res<AssetServer>,
+    mut commands: Commands,
+    mut materials2d: ResMut<Assets<ColorMaterial>>,
+) {
+    let font: Handle<Font> = asset_server.load("fonts/pacifico/Pacifico-Regular.ttf"); // TODO -- save somewhere
+
+    commands.spawn_bundle(UiCameraBundle::default());
+
+    commands
+        .spawn_bundle(NodeBundle {
+            // root
+            style: Style {
+                size: Size::new(Val::Percent(100.0), Val::Percent(100.0)),
+                justify_content: JustifyContent::Center,
+                ..Default::default()
+            },
+            material: materials2d.add(Color::NONE.into()),
+            ..Default::default()
+        })
+        .with_children(|parent| {
+            parent
+                .spawn_bundle(NodeBundle {
+                    style: Style {
+                        min_size: Size::new(Val::Px(800.0), Val::Px(300.0)),
+                        position: Rect::all(Val::Px(0.0)),
+                        position_type: PositionType::Absolute,
+
+                        // I expect one of these to center the text in the node
+                        align_content: AlignContent::Center,
+                        align_items: AlignItems::Center,
+                        align_self: AlignSelf::Center,
+
+                        // this line aligns the content
+                        justify_content: JustifyContent::Center,
+
+                        ..Default::default()
+                    },
+                    material: materials2d.add(Color::rgb(0.15, 0.15, 0.15).into()),
+                    ..Default::default()
+                })
+                //.insert(Parent(root_entity))
+                .with_children(|parent| {
+                    // The End
+                    parent.spawn_bundle(TextBundle {
+                        text: Text::with_section(
+                            "The End",
+                            TextStyle {
+                                font: font.clone(),
+                                font_size: 250.0,
+                                color: Color::rgb_u8(111, 188, 165),
+                            },
+                            TextAlignment {
+                                horizontal: HorizontalAlign::Center,
+                                vertical: VerticalAlign::Center,
+                            },
+                        ),
+                        ..Default::default()
+                    });
+                    // Press ESC
+                    parent.spawn_bundle(TextBundle {
+                        text: Text::with_section(
+                            "Press ESCAPE to quit",
+                            TextStyle {
+                                font: font.clone(),
+                                font_size: 64.0,
+                                color: Color::rgb_u8(192, 192, 192),
+                            },
+                            TextAlignment {
+                                horizontal: HorizontalAlign::Center,
+                                vertical: VerticalAlign::Center,
+                            },
+                        ),
+                        ..Default::default()
+                    });
+                });
+        });
 }
