@@ -444,12 +444,14 @@ fn load_level_assets(
     });
 
     // Chieftain Hut
-    // let chieftain_hut_mesh: Handle<Mesh> = asset_server.get_handle("models/chieftain_hut.gltf#Cylinder/Primitive0");
-    // commands.insert_resource(chieftain_hut_mesh.clone());
-    // let chieftain_hut_material = materials.add(StandardMaterial { // TODO - from file?
-    //     base_color: Color::rgb(0.8, 0.7, 0.6),
-    //     ..Default::default()
-    // });
+    let chieftain_hut_mesh: Handle<Mesh> =
+        asset_server.get_handle("models/chieftain_hut.gltf#Mesh0/Primitive0");
+    commands.insert_resource(chieftain_hut_mesh.clone());
+    let chieftain_hut_material = materials.add(StandardMaterial {
+        // TODO - from file?
+        base_color: Color::rgb(0.6, 0.7, 0.8),
+        ..Default::default()
+    });
 
     game_data.add_level(Level {
         name: "Hut".to_string(),
@@ -484,6 +486,35 @@ fn load_level_assets(
                 },
                 4,
             )],
+        },
+    });
+
+    game_data.add_level(Level {
+        name: "Village".to_string(),
+        grid_size: IVec2::new(5, 5),
+        balance_factor: 0.5,
+        victory_margin: 0.1, // TODO
+        inventory: Inventory {
+            items: vec![
+                (
+                    Buildable {
+                        name: "Hut".to_string(),
+                        weight: 1.0,
+                        mesh: hut_mesh.clone(),
+                        material: hut_material.clone(),
+                    },
+                    2,
+                ),
+                (
+                    Buildable {
+                        name: "Chieftain Hut".to_string(),
+                        weight: 2.0,
+                        mesh: chieftain_hut_mesh.clone(),
+                        material: chieftain_hut_material.clone(),
+                    },
+                    2,
+                ),
+            ],
         },
     });
 
