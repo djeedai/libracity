@@ -158,6 +158,10 @@ impl GameData {
         }
     }
 
+    pub fn selected_slot(&self) -> &Buildable {
+        &self.inventory.items[self.current_inventory_index as usize].0
+    }
+
     pub fn select_prev(&mut self) -> Option<&Buildable> {
         let len = self.inventory.items.len() as i32;
         let prev_index = ((self.current_inventory_index + len - 1) % len) as usize;
@@ -361,16 +365,20 @@ impl Grid {
         let min = self.min_pos();
         let max = self.max_pos();
         let mut w00 = Vec2::ZERO;
-        //println!("calc_rot: min={:?} max={:?}", min, max);
+        println!("calc_rot: min={:?} max={:?}", min, max);
         for j in min.y..max.y + 1 {
             for i in min.x..max.x + 1 {
                 let ij = IVec2::new(i, j);
                 let index = self.index(&ij);
-                //println!("calc_rot: index={:?}", index);
                 let fpos = self.fpos(&ij);
+                println!(
+                    "calc_rot: index={:?} ij={},{} fpos={:?} w={}",
+                    index, i, j, fpos, self.content[index]
+                );
                 w00 += self.content[index] * fpos;
             }
         }
+        println!("calc_rot: w00={:?}", w00);
         w00
     }
 
@@ -872,17 +880,24 @@ fn inventory_ui_system(
     mut query: Query<(&mut InventorySlot, &mut Handle<ColorMaterial>, &Children)>,
     mut text_query: Query<&mut Text>,
     mut ev: EventReader<UpdateInventorySlots>,
+    mut cursor_query: Query<(&mut Cursor,)>,
 ) {
     // Change selected buildable from inventory
     let mut changed = false;
     if keyboard_input.just_pressed(KeyCode::Q) {
-        if let Some(_buildable) = game_data.select_prev() {
+        if let Some(buildable) = game_data.select_prev() {
             changed = true;
+            if let Ok((mut cursor,)) = cursor_query.single_mut() {
+                cursor.weight = buildable.weight;
+            }
         }
     }
     if keyboard_input.just_pressed(KeyCode::E) || keyboard_input.just_pressed(KeyCode::Tab) {
-        if let Some(_buildable) = game_data.select_next() {
+        if let Some(buildable) = game_data.select_next() {
             changed = true;
+            if let Ok((mut cursor,)) = cursor_query.single_mut() {
+                cursor.weight = buildable.weight;
+            }
         }
     }
 
@@ -1206,6 +1221,7 @@ fn cursor_movement_system(
                     // Try to select another slot with some item(s) left
                     if let Some(index) = game_data.inventory.find_non_empty_slot() {
                         game_data.current_inventory_index = index as i32;
+                        cursor.weight = game_data.selected_slot().weight;
                         ev_update_slots.send(UpdateInventorySlots);
                     } else {
                         // No more of any item in any slot; hide cursor and check level result
