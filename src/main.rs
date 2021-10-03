@@ -109,6 +109,8 @@ struct GameData {
     current_inventory_index: i32,
     frame_material: Handle<ColorMaterial>,
     inventory_ui_root_node: Option<Entity>,
+    // HACK to delete everything on TheEnd screen
+    all_entities: Vec<Entity>,
 }
 
 impl GameData {
@@ -120,6 +122,7 @@ impl GameData {
             current_inventory_index: 0,
             frame_material: Default::default(),
             inventory_ui_root_node: None,
+            all_entities: vec![],
         }
     }
 
@@ -398,6 +401,8 @@ impl Grid {
     }
 }
 
+static DEBUG: &str = "debug";
+
 fn main() {
     let mut diag = LogDiagnosticsPlugin::default();
     diag.debug = true;
@@ -441,18 +446,53 @@ fn main() {
             SystemSet::on_exit(AppState::MainMenu).with_system(close_main_menu.system()),
         )
         // == InGame state ==
-        .add_system_set(SystemSet::on_enter(AppState::InGame).with_system(setup3d.system()))
+        .add_system_set(
+            SystemSet::on_enter(AppState::InGame).with_system(setup3d.system().label("setup3d")),
+        )
         .add_system_set(
             SystemSet::on_update(AppState::InGame)
-                .with_system(plate_movement_system.system())
-                .with_system(draw_debug_axes_system.system())
-                .with_system(cursor_movement_system.system())
-                .with_system(plate_balance_system.system())
-                .with_system(check_victory_condition.system())
-                .with_system(regenerate_inventory_ui.system())
+                .with_system(
+                    plate_movement_system
+                        .system()
+                        .label("plate_movement_system"),
+                )
+                .with_system(
+                    draw_debug_axes_system
+                        .system()
+                        .label("draw_debug_axes_system"),
+                )
+                .with_system(
+                    cursor_movement_system
+                        .system()
+                        .label("cursor_movement_system"),
+                )
+                .with_system(plate_balance_system.system().label("plate_balance_system"))
+                .with_system(
+                    check_victory_condition
+                        .system()
+                        .label("check_victory_condition"),
+                )
+                .with_system(
+                    regenerate_inventory_ui
+                        .system()
+                        .label("regenerate_inventory_ui"),
+                )
                 .with_system(inventory_ui_system.system()),
         )
-        .add_system_set(SystemSet::on_exit(AppState::InGame).with_system(cleanup3d.system()))
+        //.add_stage_after(CoreStage::Update, DEBUG, SystemStage::single_threaded())
+        .add_system_set(
+            SystemSet::on_exit(AppState::InGame).with_system(
+                cleanup3d
+                    .system()
+                    .after("setup3d")
+                    .after("regenerate_inventory_ui")
+                    .after("plate_movement_system")
+                    .after("draw_debug_axes_system")
+                    .after("cursor_movement_system")
+                    .after("plate_balance_system")
+                    .after("check_victory_condition"),
+            ),
+        ) // https://github.com/bevyengine/bevy/issues/1743#issuecomment-806335175
         // == TheEnd state ==
         .add_system_set(
             SystemSet::on_enter(AppState::TheEnd).with_system(spawn_end_screen.system()),
@@ -603,6 +643,7 @@ fn load_level_assets(
         texture: Some(chieftain_hut_frame_texture),
     });
 
+    // Level 1
     game_data.add_level(Level {
         name: "Hut".to_string(),
         grid_size: IVec2::new(3, 3),
@@ -624,6 +665,7 @@ fn load_level_assets(
         },
     });
 
+    // Level 2
     game_data.add_level(Level {
         name: "Neighborhood".to_string(),
         grid_size: IVec2::new(5, 5),
@@ -645,6 +687,7 @@ fn load_level_assets(
         },
     });
 
+    // Level 3
     game_data.add_level(Level {
         name: "Village".to_string(),
         grid_size: IVec2::new(5, 5),
@@ -674,7 +717,43 @@ fn load_level_assets(
                         frame_material_selected: chieftain_hut_frame_material_selected.clone(),
                         frame_material_empty: chieftain_hut_frame_material_empty.clone(),
                     },
+                    1,
+                ),
+            ],
+        },
+    });
+
+    // Level 3
+    game_data.add_level(Level {
+        name: "Village 2".to_string(),
+        grid_size: IVec2::new(5, 5),
+        balance_factor: 0.5,
+        victory_margin: 0.1, // TODO
+        inventory: Inventory {
+            items: vec![
+                (
+                    Buildable {
+                        name: "Hut".to_string(),
+                        weight: 1.0,
+                        mesh: hut_mesh.clone(),
+                        material: hut_material.clone(),
+                        frame_material: hut_frame_material.clone(),
+                        frame_material_selected: hut_frame_material_selected.clone(),
+                        frame_material_empty: hut_frame_material_empty.clone(),
+                    },
                     2,
+                ),
+                (
+                    Buildable {
+                        name: "Chieftain Hut".to_string(),
+                        weight: 2.0,
+                        mesh: chieftain_hut_mesh.clone(),
+                        material: chieftain_hut_material.clone(),
+                        frame_material: chieftain_hut_frame_material.clone(),
+                        frame_material_selected: chieftain_hut_frame_material_selected.clone(),
+                        frame_material_empty: chieftain_hut_frame_material_empty.clone(),
+                    },
+                    3,
                 ),
             ],
         },
@@ -1196,7 +1275,7 @@ struct LevelNameText; // marker
 
 /// set up a simple 3D scene
 fn setup3d(
-    game_data: Res<GameData>,
+    mut game_data: ResMut<GameData>,
     asset_server: Res<AssetServer>,
     mut commands: Commands,
     mut grid: ResMut<Grid>,
@@ -1205,10 +1284,8 @@ fn setup3d(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut ev_regen_ui: EventWriter<RegenerateInventoryUiEvent>,
 ) {
-    let level = game_data.level();
-
     // Setup grid
-    grid.set_size(&level.grid_size);
+    grid.set_size(&game_data.level().grid_size);
 
     // Create grid material
     let grid_texture = textures.add(create_grid_tex());
@@ -1241,6 +1318,7 @@ fn setup3d(
     // Plate
     let mut plate_cmds = commands.spawn();
     let plate = plate_cmds.id();
+    //game_data.all_entities.push(plate);
     plate_cmds
         .insert(Transform::identity())
         .insert(GlobalTransform::identity())
@@ -1277,6 +1355,7 @@ fn setup3d(
     });
 
     // Camera
+    //game_data.all_entities.push(
     commands.spawn_bundle(PerspectiveCameraBundle {
         transform: Transform::from_xyz(-0.7, 1.0, 2.0).looking_at(Vec3::ZERO, Vec3::Y),
         // perspective_projection: PerspectiveProjection {
@@ -1292,7 +1371,7 @@ fn setup3d(
     commands.spawn_bundle(UiCameraBundle::default());
 
     // Title
-    commands
+    let title = commands
         .spawn_bundle(TextBundle {
             style: Style {
                 align_self: AlignSelf::FlexEnd,
@@ -1305,7 +1384,7 @@ fn setup3d(
                 ..Default::default()
             },
             text: Text::with_section(
-                level.name.clone(),
+                game_data.level().name.clone(),
                 TextStyle {
                     font: asset_server.load("fonts/pacifico/Pacifico-Regular.ttf"),
                     font_size: 100.0,
@@ -1318,17 +1397,34 @@ fn setup3d(
             ),
             ..Default::default()
         })
-        .insert(LevelNameText); // marker to allow finding this text to change it
+        .insert(LevelNameText) // marker to allow finding this text to change it
+        .id();
+    game_data.all_entities.push(title);
 
     // Regenerate the inventory UI before starting to play
     ev_regen_ui.send(RegenerateInventoryUiEvent {});
 }
 
-fn cleanup3d(mut query: Query<(&mut Visible,)>) {
+fn cleanup3d(
+    mut query: Query<(&mut Visible,)>,
+    mut game_data: ResMut<GameData>,
+    mut commands: Commands,
+    // mut query: Query<(&mut Transform,)>,
+) {
     // LAZY HACK -- Hide literally EVERYTHING since we didn't keep track of things we need to hide/despawn
-    for (mut vis,) in query.iter_mut() {
-        vis.is_visible = false;
+    // for (mut vis,) in query.iter_mut() {
+    //     vis.is_visible = false;
+    // }
+
+    println!("Entities: {}", game_data.all_entities.len());
+    if let Some(ent) = game_data.inventory_ui_root_node {
+        game_data.all_entities.push(ent);
     }
+    for ent in game_data.all_entities.iter() {
+        println!("Entity: {:?}", *ent);
+        commands.entity(*ent).despawn_recursive();
+    }
+    game_data.all_entities.clear();
 }
 
 fn spawn_end_screen(
