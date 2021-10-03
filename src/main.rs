@@ -31,6 +31,7 @@ struct Buildable {
     //stackable: bool,
     mesh: Handle<Mesh>,
     material: Handle<StandardMaterial>,
+    frame_material: Handle<ColorMaterial>,
 }
 
 #[derive(Debug, Clone)]
@@ -520,6 +521,8 @@ fn load_level_assets(
         base_color: Color::rgb(0.8, 0.7, 0.6),
         ..Default::default()
     });
+    let hut_frame_texture: Handle<Texture> = asset_server.load("textures/frame_hut.png");
+    let hut_frame_material = materials2d.add(hut_frame_texture.into());
 
     // Chieftain Hut
     let chieftain_hut_mesh: Handle<Mesh> =
@@ -530,6 +533,8 @@ fn load_level_assets(
         base_color: Color::rgb(0.6, 0.7, 0.8),
         ..Default::default()
     });
+    let chieftain_hut_frame_texture: Handle<Texture> = asset_server.load("textures/frame_chieftain_hut.png");
+    let chieftain_hut_frame_material = materials2d.add(chieftain_hut_frame_texture.into());
 
     game_data.add_level(Level {
         name: "Hut".to_string(),
@@ -543,6 +548,7 @@ fn load_level_assets(
                     weight: 1.0,
                     mesh: hut_mesh.clone(),
                     material: hut_material.clone(),
+                    frame_material: hut_frame_material.clone(),
                 },
                 1,
             )],
@@ -561,6 +567,7 @@ fn load_level_assets(
                     weight: 1.0,
                     mesh: hut_mesh.clone(),
                     material: hut_material.clone(),
+                    frame_material: hut_frame_material.clone(),
                 },
                 4,
             )],
@@ -580,6 +587,7 @@ fn load_level_assets(
                         weight: 1.0,
                         mesh: hut_mesh.clone(),
                         material: hut_material.clone(),
+                        frame_material: hut_frame_material.clone(),
                     },
                     2,
                 ),
@@ -589,6 +597,7 @@ fn load_level_assets(
                         weight: 2.0,
                         mesh: chieftain_hut_mesh.clone(),
                         material: chieftain_hut_material.clone(),
+                        frame_material: chieftain_hut_frame_material.clone(),
                     },
                     2,
                 ),
@@ -655,7 +664,7 @@ fn regenerate_inventory_ui(
                                 justify_content: JustifyContent::Center,
                                 ..Default::default()
                             },
-                            material: game_data.frame_material.clone(),
+                            material: buildable.frame_material.clone(),
                             ..Default::default()
                         });
                         xpos -= 200.0;
@@ -1024,7 +1033,6 @@ fn setup3d(
     mut meshes: ResMut<Assets<Mesh>>,
     mut textures: ResMut<Assets<Texture>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut materials2d: ResMut<Assets<ColorMaterial>>,
 ) {
     let level = game_data.level();
 
@@ -1138,5 +1146,5 @@ fn setup3d(
             ),
             ..Default::default()
         })
-        .insert(LevelNameText);
+        .insert(LevelNameText); // marker to allow finding this text to change it
 }
