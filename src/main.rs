@@ -32,6 +32,7 @@ struct Buildable {
     mesh: Handle<Mesh>,
     material: Handle<StandardMaterial>,
     frame_material: Handle<ColorMaterial>,
+    frame_material_selected: Handle<ColorMaterial>,
 }
 
 #[derive(Debug, Clone)]
@@ -405,7 +406,8 @@ fn main() {
                 .with_system(cursor_movement_system.system())
                 .with_system(plate_balance_system.system())
                 .with_system(check_victory_condition.system())
-                .with_system(regenerate_inventory_ui.system()),
+                .with_system(regenerate_inventory_ui.system())
+                .with_system(inventory_ui_system.system()),
         )
         // Initial state
         .add_state(AppState::InGame)
@@ -513,6 +515,9 @@ fn load_level_assets(
     // Load all models in the models/ folder in parallel
     let _: Vec<HandleUntyped> = asset_server.load_folder("models").unwrap();
 
+    let color_unselected = Color::rgba(1.0, 1.0, 1.0, 0.5);
+    let color_selected = Color::rgba(1.0, 1.0, 1.0, 1.0);
+
     // Hut
     let hut_mesh: Handle<Mesh> = asset_server.get_handle("models/hut.gltf#Mesh0/Primitive0");
     commands.insert_resource(hut_mesh.clone());
@@ -522,7 +527,14 @@ fn load_level_assets(
         ..Default::default()
     });
     let hut_frame_texture: Handle<Texture> = asset_server.load("textures/frame_hut.png");
-    let hut_frame_material = materials2d.add(hut_frame_texture.into());
+    let hut_frame_material = materials2d.add(ColorMaterial {
+        color: color_unselected,
+        texture: Some(hut_frame_texture.clone()),
+    });
+    let hut_frame_material_selected = materials2d.add(ColorMaterial {
+        color: color_selected,
+        texture: Some(hut_frame_texture),
+    });
 
     // Chieftain Hut
     let chieftain_hut_mesh: Handle<Mesh> =
@@ -533,8 +545,16 @@ fn load_level_assets(
         base_color: Color::rgb(0.6, 0.7, 0.8),
         ..Default::default()
     });
-    let chieftain_hut_frame_texture: Handle<Texture> = asset_server.load("textures/frame_chieftain_hut.png");
-    let chieftain_hut_frame_material = materials2d.add(chieftain_hut_frame_texture.into());
+    let chieftain_hut_frame_texture: Handle<Texture> =
+        asset_server.load("textures/frame_chieftain_hut.png");
+    let chieftain_hut_frame_material = materials2d.add(ColorMaterial {
+        color: color_unselected,
+        texture: Some(chieftain_hut_frame_texture.clone()),
+    });
+    let chieftain_hut_frame_material_selected = materials2d.add(ColorMaterial {
+        color: color_selected,
+        texture: Some(chieftain_hut_frame_texture),
+    });
 
     game_data.add_level(Level {
         name: "Hut".to_string(),
@@ -542,16 +562,31 @@ fn load_level_assets(
         balance_factor: 1.0,
         victory_margin: 0.001, // only 1 exact solution
         inventory: Inventory {
-            items: vec![(
-                Buildable {
-                    name: "Hut".to_string(),
-                    weight: 1.0,
-                    mesh: hut_mesh.clone(),
-                    material: hut_material.clone(),
-                    frame_material: hut_frame_material.clone(),
-                },
-                1,
-            )],
+            items: vec![
+                (
+                    Buildable {
+                        name: "Hut".to_string(),
+                        weight: 1.0,
+                        mesh: hut_mesh.clone(),
+                        material: hut_material.clone(),
+                        frame_material: hut_frame_material.clone(),
+                        frame_material_selected: hut_frame_material_selected.clone(),
+                    },
+                    1,
+                ),
+                (
+                    // TEMP
+                    Buildable {
+                        name: "Chieftain Hut".to_string(),
+                        weight: 2.0,
+                        mesh: chieftain_hut_mesh.clone(),
+                        material: chieftain_hut_material.clone(),
+                        frame_material: chieftain_hut_frame_material.clone(),
+                        frame_material_selected: chieftain_hut_frame_material_selected.clone(),
+                    },
+                    2,
+                ),
+            ],
         },
     });
 
@@ -568,6 +603,7 @@ fn load_level_assets(
                     mesh: hut_mesh.clone(),
                     material: hut_material.clone(),
                     frame_material: hut_frame_material.clone(),
+                    frame_material_selected: hut_frame_material_selected.clone(),
                 },
                 4,
             )],
@@ -588,6 +624,7 @@ fn load_level_assets(
                         mesh: hut_mesh.clone(),
                         material: hut_material.clone(),
                         frame_material: hut_frame_material.clone(),
+                        frame_material_selected: hut_frame_material_selected.clone(),
                     },
                     2,
                 ),
@@ -598,6 +635,7 @@ fn load_level_assets(
                         mesh: chieftain_hut_mesh.clone(),
                         material: chieftain_hut_material.clone(),
                         frame_material: chieftain_hut_frame_material.clone(),
+                        frame_material_selected: chieftain_hut_frame_material_selected.clone(),
                     },
                     2,
                 ),
@@ -619,6 +657,17 @@ fn load_level_assets(
 }
 
 struct RegenerateInventoryUiEvent;
+
+struct InventorySlot {
+    index: u32,
+    count: u32,
+}
+
+impl InventorySlot {
+    pub fn new(index: u32, count: u32) -> InventorySlot {
+        InventorySlot { index, count }
+    }
+}
 
 fn regenerate_inventory_ui(
     mut commands: Commands,
@@ -644,34 +693,72 @@ fn regenerate_inventory_ui(
                 })
                 .with_children(|parent| {
                     let mut xpos = 100.0 + 200.0 * (game_data.inventory.items.len() - 1) as f32;
+                    let mut index = 0;
                     for (buildable, count) in game_data.inventory.items.iter() {
-                        parent.spawn_bundle(NodeBundle {
-                            style: Style {
-                                size: Size::new(Val::Px(128.0), Val::Px(128.0)),
-                                position_type: PositionType::Absolute,
-                                position: Rect {
-                                    bottom: Val::Px(100.0),
-                                    right: Val::Px(xpos),
+                        parent
+                            .spawn_bundle(NodeBundle {
+                                style: Style {
+                                    size: Size::new(Val::Px(128.0), Val::Px(128.0)),
+                                    position_type: PositionType::Absolute,
+                                    position: Rect {
+                                        bottom: Val::Px(100.0),
+                                        right: Val::Px(xpos),
+                                        ..Default::default()
+                                    },
+
+                                    // I expect one of these to center the text in the node
+                                    align_content: AlignContent::Center,
+                                    align_items: AlignItems::Center,
+                                    align_self: AlignSelf::Center,
+
+                                    // this line aligns the content
+                                    justify_content: JustifyContent::Center,
                                     ..Default::default()
                                 },
-
-                                // I expect one of these to center the text in the node
-                                align_content: AlignContent::Center,
-                                align_items: AlignItems::Center,
-                                align_self: AlignSelf::Center,
-
-                                // this line aligns the content
-                                justify_content: JustifyContent::Center,
+                                material: buildable.frame_material.clone(),
                                 ..Default::default()
-                            },
-                            material: buildable.frame_material.clone(),
-                            ..Default::default()
-                        });
+                            })
+                            .insert(InventorySlot::new(index, *count));
                         xpos -= 200.0;
+                        index += 1;
                     }
                 })
                 .id(),
         );
+    }
+}
+
+fn inventory_ui_system(
+    mut commands: Commands,
+    mut keyboard_input: ResMut<Input<KeyCode>>,
+    mut game_data: ResMut<GameData>,
+    mut materials2d: ResMut<Assets<ColorMaterial>>,
+    mut query: Query<(&InventorySlot, &mut Handle<ColorMaterial>)>,
+) {
+    // Change selected buildable from inventory
+    let mut changed = false;
+    if keyboard_input.just_pressed(KeyCode::Q) {
+        let buildable = game_data.select_prev();
+        changed = true;
+    }
+    if keyboard_input.just_pressed(KeyCode::E) || keyboard_input.just_pressed(KeyCode::Tab) {
+        let buildable = game_data.select_next();
+        changed = true;
+    }
+
+    // Update all inventory slots
+    if changed {
+        let selected_index = game_data.current_inventory_index;
+        println!("inventory_ui_system: CHANGED! sel={}", selected_index);
+        for (slot, mut material) in query.iter_mut() {
+            println!("Slot #{} (sel={})", slot.index, selected_index);
+            let buildable = &game_data.inventory.items[slot.index as usize].0;
+            *material = if slot.index == selected_index as u32 {
+                buildable.frame_material_selected.clone()
+            } else {
+                buildable.frame_material.clone()
+            };
+        }
     }
 }
 
@@ -931,14 +1018,6 @@ fn cursor_movement_system(
             let fpos = grid.fpos(&cursor.pos);
             let translation = &mut transform.translation;
             *translation = Vec3::new(fpos.x, 0.1, -fpos.y);
-        }
-
-        // Change selected buildable from inventory
-        if keyboard_input.just_pressed(KeyCode::Q) {
-            let buildable = game_data.select_prev();
-        }
-        if keyboard_input.just_pressed(KeyCode::E) {
-            let buildable = game_data.select_next();
         }
 
         // Spawn buildable at cursor position
