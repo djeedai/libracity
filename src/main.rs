@@ -72,6 +72,8 @@ struct GameData {
     current_level_index: u32,
     inventory: Inventory, // TODO - ref? or just number of items + ref into which items
     current_inventory_index: i32,
+    frame_material: Handle<ColorMaterial>,
+    inventory_ui_root_node: Option<Entity>,
 }
 
 impl GameData {
@@ -81,7 +83,13 @@ impl GameData {
             current_level_index: 0,
             inventory: Inventory::new(),
             current_inventory_index: 0,
+            frame_material: Default::default(),
+            inventory_ui_root_node: None,
         }
+    }
+
+    pub fn set_frame_material(&mut self, frame_material: Handle<ColorMaterial>) {
+        self.frame_material = frame_material;
     }
 
     pub fn add_level(&mut self, level: Level) {
@@ -372,6 +380,7 @@ fn main() {
         .add_startup_system(start_background_audio.system())
         // Resources
         .add_event::<CheckLevelResultEvent>()
+        .add_event::<RegenerateInventoryUiEvent>()
         .insert_resource(Grid::new())
         .insert_resource(GameData::new())
         .add_startup_system(load_level_assets.system().label("load_level_assets"))
@@ -394,7 +403,8 @@ fn main() {
                 .with_system(draw_debug_axes_system.system())
                 .with_system(cursor_movement_system.system())
                 .with_system(plate_balance_system.system())
-                .with_system(check_victory_condition.system()),
+                .with_system(check_victory_condition.system())
+                .with_system(regenerate_inventory_ui.system()),
         )
         // Initial state
         .add_state(AppState::InGame)
@@ -411,11 +421,13 @@ fn check_victory_condition(
     query1: Query<(&Plate,)>,
     mut query2: Query<(&Cursor, &mut Visible, &mut Transform)>,
     mut query3: Query<&mut Text, With<LevelNameText>>,
+    mut ev_regen_ui: EventWriter<RegenerateInventoryUiEvent>,
 ) {
     for ev in ev_check_level.iter() {
         let level = game_data.level();
         if grid.is_victory(level.balance_factor, level.victory_margin) {
             println!("VICTORY!");
+            // Try to transition to the next level after this one
             if let Some(level) = game_data.set_next_level() {
                 // Load new grid
                 grid.clear(Some(&mut commands));
@@ -433,15 +445,20 @@ fn check_victory_condition(
                     let cursor_fpos = grid.fpos(&cursor.pos);
                     let cell_size = grid.cell_size();
                     *transform =
-                        Transform::from_translation(Vec3::new(cursor_fpos.x, 0.1, -cursor_fpos.y)) * Transform::from_scale(Vec3::new(cell_size.x, cell_size.x, cell_size.x)); // TODO - xy?
+                        Transform::from_translation(Vec3::new(cursor_fpos.x, 0.1, -cursor_fpos.y))
+                            * Transform::from_scale(Vec3::new(
+                                cell_size.x,
+                                cell_size.x,
+                                cell_size.x,
+                            )); // TODO - xy?
                 }
                 // Change title text
                 if let Ok(mut text) = query3.single_mut() {
                     text.sections[0].value = level.name.clone();
                 }
+                // Reset inventory
+                ev_regen_ui.send(RegenerateInventoryUiEvent {});
             }
-            // Reset inventory
-            game_data.inventory = game_data.level().inventory.clone();
         }
     }
 }
@@ -472,6 +489,8 @@ fn load_level_assets(
     meshes: Res<Assets<Mesh>>,
     gltfs: Res<Assets<Gltf>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials2d: ResMut<Assets<ColorMaterial>>,
+    mut ev_regen_ui: EventWriter<RegenerateInventoryUiEvent>,
 ) {
     println!("load_level_assets");
 
@@ -576,9 +595,75 @@ fn load_level_assets(
             ],
         },
     });
+    // Create frame material for UI
+    let frame_texture = asset_server.load("textures/frame.png");
+    let frame_material = materials2d.add(ColorMaterial {
+        color: Color::rgb(1.0, 1.0, 1.0),
+        texture: Some(frame_texture),
+    });
+    game_data.set_frame_material(frame_material);
 
     // Load first level by default (this allows skipping the main menu while developping)
     game_data.set_level(0);
+    println!("Sending RegenerateInventoryUiEvent from load_level_assets()...");
+    ev_regen_ui.send(RegenerateInventoryUiEvent {});
+}
+
+struct RegenerateInventoryUiEvent;
+
+fn regenerate_inventory_ui(
+    mut commands: Commands,
+    mut ev_regen_ui: EventReader<RegenerateInventoryUiEvent>,
+    mut game_data: ResMut<GameData>,
+    mut materials2d: ResMut<Assets<ColorMaterial>>,
+) {
+    for ev in ev_regen_ui.iter() {
+        println!("regenerate_inventory_ui() -- GOT EVENT!");
+        if let Some(root) = game_data.inventory_ui_root_node {
+            commands.entity(root).despawn_recursive();
+        }
+        game_data.inventory_ui_root_node = Some(
+            commands
+                .spawn_bundle(NodeBundle {
+                    style: Style {
+                        size: Size::new(Val::Percent(100.0), Val::Percent(100.0)),
+                        justify_content: JustifyContent::FlexEnd,
+                        ..Default::default()
+                    },
+                    material: materials2d.add(Color::NONE.into()),
+                    ..Default::default()
+                })
+                .with_children(|parent| {
+                    let mut xpos = 100.0 + 200.0 * (game_data.inventory.items.len() - 1) as f32;
+                    for (buildable, count) in game_data.inventory.items.iter() {
+                        parent.spawn_bundle(NodeBundle {
+                            style: Style {
+                                size: Size::new(Val::Px(128.0), Val::Px(128.0)),
+                                position_type: PositionType::Absolute,
+                                position: Rect {
+                                    bottom: Val::Px(100.0),
+                                    right: Val::Px(xpos),
+                                    ..Default::default()
+                                },
+
+                                // I expect one of these to center the text in the node
+                                align_content: AlignContent::Center,
+                                align_items: AlignItems::Center,
+                                align_self: AlignSelf::Center,
+
+                                // this line aligns the content
+                                justify_content: JustifyContent::Center,
+                                ..Default::default()
+                            },
+                            material: game_data.frame_material.clone(),
+                            ..Default::default()
+                        });
+                        xpos -= 200.0;
+                    }
+                })
+                .id(),
+        );
+    }
 }
 
 struct MenuData {
@@ -939,6 +1024,7 @@ fn setup3d(
     mut meshes: ResMut<Assets<Mesh>>,
     mut textures: ResMut<Assets<Texture>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials2d: ResMut<Assets<ColorMaterial>>,
 ) {
     let level = game_data.level();
 
@@ -1026,29 +1112,31 @@ fn setup3d(
     commands.spawn_bundle(UiCameraBundle::default());
 
     // Title
-    commands.spawn_bundle(TextBundle {
-        style: Style {
-            align_self: AlignSelf::FlexEnd,
-            position_type: PositionType::Absolute,
-            position: Rect {
-                bottom: Val::Px(5.0),
-                left: Val::Px(15.0),
+    commands
+        .spawn_bundle(TextBundle {
+            style: Style {
+                align_self: AlignSelf::FlexEnd,
+                position_type: PositionType::Absolute,
+                position: Rect {
+                    bottom: Val::Px(5.0),
+                    left: Val::Px(15.0),
+                    ..Default::default()
+                },
                 ..Default::default()
             },
+            text: Text::with_section(
+                level.name.clone(),
+                TextStyle {
+                    font: asset_server.load("fonts/pacifico/Pacifico-Regular.ttf"),
+                    font_size: 100.0,
+                    color: Color::rgb_u8(111, 188, 165),
+                },
+                TextAlignment {
+                    horizontal: HorizontalAlign::Left,
+                    ..Default::default()
+                },
+            ),
             ..Default::default()
-        },
-        text: Text::with_section(
-            level.name.clone(),
-            TextStyle {
-                font: asset_server.load("fonts/pacifico/Pacifico-Regular.ttf"),
-                font_size: 100.0,
-                color: Color::rgb_u8(111, 188, 165),
-            },
-            TextAlignment {
-                horizontal: HorizontalAlign::Left,
-                ..Default::default()
-            },
-        ),
-        ..Default::default()
-    }).insert(LevelNameText);
+        })
+        .insert(LevelNameText);
 }
