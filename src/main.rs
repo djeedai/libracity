@@ -1131,10 +1131,11 @@ fn cursor_movement_system(
                     } else {
                         // No more of any item in any slot; hide cursor and check level result
                         visible.is_visible = false;
+                        ev_update_slots.send(UpdateInventorySlots);
                         ev_check_level.send(CheckLevelResultEvent {});
                     }
                 } else {
-                    // If current slot still has items, update anyway f
+                    // If current slot still has items, update anyway
                     ev_update_slots.send(UpdateInventorySlots);
                 }
             }
