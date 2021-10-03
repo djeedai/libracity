@@ -355,6 +355,11 @@ impl Grid {
         )
     }
 
+    pub fn can_spawn_item(&mut self, pos: &IVec2) -> bool {
+        let index = self.index(pos);
+        self.content[index] < 0.1
+    }
+
     pub fn spawn_item(&mut self, pos: &IVec2, weight: f32, entity: Entity) {
         let index = self.index(pos);
         self.content[index] += weight;
@@ -365,20 +370,20 @@ impl Grid {
         let min = self.min_pos();
         let max = self.max_pos();
         let mut w00 = Vec2::ZERO;
-        println!("calc_rot: min={:?} max={:?}", min, max);
+        //println!("calc_rot: min={:?} max={:?}", min, max);
         for j in min.y..max.y + 1 {
             for i in min.x..max.x + 1 {
                 let ij = IVec2::new(i, j);
                 let index = self.index(&ij);
                 let fpos = self.fpos(&ij);
-                println!(
-                    "calc_rot: index={:?} ij={},{} fpos={:?} w={}",
-                    index, i, j, fpos, self.content[index]
-                );
+                // println!(
+                //     "calc_rot: index={:?} ij={},{} fpos={:?} w={}",
+                //     index, i, j, fpos, self.content[index]
+                // );
                 w00 += self.content[index] * fpos;
             }
         }
-        println!("calc_rot: w00={:?}", w00);
+        //println!("calc_rot: w00={:?}", w00);
         w00
     }
 
@@ -1197,41 +1202,44 @@ fn cursor_movement_system(
         // Spawn buildable at cursor position
         if keyboard_input.just_pressed(KeyCode::Space) {
             let slot_index = game_data.current_inventory_index as u32;
-            if let Some(buildable) = game_data.inventory.pop_item(slot_index) {
-                let fpos = grid.fpos(&cursor.pos);
-                println!("Spawn buildable at pos={:?} fpos={:?}", cursor.pos, fpos);
-                let cell_size = grid.cell_size();
-                let entity = commands
-                    .spawn_bundle(PbrBundle {
-                        mesh: buildable.mesh.clone(),
-                        material: buildable.material.clone(),
-                        transform: Transform::from_translation(Vec3::new(fpos.x, 0.1, -fpos.y))
-                            * Transform::from_scale(Vec3::new(
-                                cell_size.x,
-                                cell_size.x,
-                                cell_size.x,
-                            )), // TODO -- can we really handle non-uniform cell size?!
-                        ..Default::default()
-                    })
-                    .insert(Parent(cursor.spawn_root_entity))
-                    .id();
-                grid.spawn_item(&cursor.pos, cursor.weight, entity);
-                // Check if current slot has any item available left
-                if game_data.inventory.item_count(slot_index) == 0 {
-                    // Try to select another slot with some item(s) left
-                    if let Some(index) = game_data.inventory.find_non_empty_slot() {
-                        game_data.current_inventory_index = index as i32;
-                        cursor.weight = game_data.selected_slot().weight;
-                        ev_update_slots.send(UpdateInventorySlots);
+            let can_spawn = grid.can_spawn_item(&cursor.pos);
+            if can_spawn {
+                if let Some(buildable) = game_data.inventory.pop_item(slot_index) {
+                    let fpos = grid.fpos(&cursor.pos);
+                    println!("Spawn buildable at pos={:?} fpos={:?}", cursor.pos, fpos);
+                    let cell_size = grid.cell_size();
+                    let entity = commands
+                        .spawn_bundle(PbrBundle {
+                            mesh: buildable.mesh.clone(),
+                            material: buildable.material.clone(),
+                            transform: Transform::from_translation(Vec3::new(fpos.x, 0.1, -fpos.y))
+                                * Transform::from_scale(Vec3::new(
+                                    cell_size.x,
+                                    cell_size.x,
+                                    cell_size.x,
+                                )), // TODO -- can we really handle non-uniform cell size?!
+                            ..Default::default()
+                        })
+                        .insert(Parent(cursor.spawn_root_entity))
+                        .id();
+                    grid.spawn_item(&cursor.pos, cursor.weight, entity);
+                    // Check if current slot has any item available left
+                    if game_data.inventory.item_count(slot_index) == 0 {
+                        // Try to select another slot with some item(s) left
+                        if let Some(index) = game_data.inventory.find_non_empty_slot() {
+                            game_data.current_inventory_index = index as i32;
+                            cursor.weight = game_data.selected_slot().weight;
+                            ev_update_slots.send(UpdateInventorySlots);
+                        } else {
+                            // No more of any item in any slot; hide cursor and check level result
+                            visible.is_visible = false;
+                            ev_update_slots.send(UpdateInventorySlots);
+                            ev_check_level.send(CheckLevelResultEvent {});
+                        }
                     } else {
-                        // No more of any item in any slot; hide cursor and check level result
-                        visible.is_visible = false;
+                        // If current slot still has items, update anyway
                         ev_update_slots.send(UpdateInventorySlots);
-                        ev_check_level.send(CheckLevelResultEvent {});
                     }
-                } else {
-                    // If current slot still has items, update anyway
-                    ev_update_slots.send(UpdateInventorySlots);
                 }
             }
         }
