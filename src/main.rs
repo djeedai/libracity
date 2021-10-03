@@ -408,7 +408,8 @@ fn check_victory_condition(
     mut meshes: ResMut<Assets<Mesh>>,
     mut grid: ResMut<Grid>,
     mut game_data: ResMut<GameData>,
-    query: Query<(&Plate,)>,
+    query1: Query<(&Plate,)>,
+    mut query2: Query<(&Cursor, &mut Visible, &mut Transform)>,
 ) {
     for ev in ev_check_level.iter() {
         let level = game_data.level();
@@ -424,11 +425,17 @@ fn check_victory_condition(
                 let cell_size = grid.cell_size();
                 let cell_mesh =
                     meshes.add(Mesh::from(shape::Box::new(cell_size.x, 0.1, cell_size.y))); // THIS IS WHY WE SHOULDN'T SCALE THE GRID BUT ONLY EXTEND IT, CAN'T REUSE THIS WHEN CELL SIZE CHANGES
-                if let Ok((plate,)) = query.single() {
+                if let Ok((plate,)) = query1.single() {
                     grid.regenerate(&mut commands, cell_mesh.clone(), plate.entity);
                 }
                 // Show cursor
-                // TODO
+                if let Ok((cursor, mut visible, mut transform)) = query2.single_mut() {
+                    visible.is_visible = true;
+                    let cursor_fpos = grid.fpos(&cursor.pos);
+                    let cell_size = grid.cell_size();
+                    *transform =
+                        Transform::from_translation(Vec3::new(cursor_fpos.x, 0.1, -cursor_fpos.y)) * Transform::from_scale(Vec3::new(cell_size.x, cell_size.x, cell_size.x)); // TODO - xy?
+                }
                 // Change title text
                 // TODO
             }
