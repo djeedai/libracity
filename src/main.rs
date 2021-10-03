@@ -63,6 +63,7 @@ struct Level {
     name: String,
     grid_size: IVec2,
     balance_factor: f32,
+    victory_margin: f32,
     inventory: Inventory,
 }
 
@@ -99,6 +100,16 @@ impl GameData {
     pub fn set_level(&mut self, index: u32) {
         self.current_level_index = index;
         self.inventory = self.level().inventory.clone();
+    }
+
+    pub fn set_next_level(&mut self) -> Option<&Level> {
+        if ((self.current_level_index + 1) as usize) < self.levels.len() {
+            self.current_level_index += 1;
+            self.inventory = self.level().inventory.clone();
+            Some(self.level())
+        } else {
+            None
+        }
     }
 
     pub fn select_prev(&mut self) -> &Buildable {
@@ -287,10 +298,10 @@ impl Grid {
         }
     }
 
-    pub fn is_victory(&self, balance_factor: f32) -> bool {
+    pub fn is_victory(&self, balance_factor: f32, victory_margin: f32) -> bool {
         let w00 = self.calc_cog_offset(balance_factor);
         println!("victory: w00={:?} len={}", w00, w00.length());
-        w00.length() < 0.1
+        w00.length() < victory_margin
     }
 }
 
@@ -352,13 +363,26 @@ fn main() {
 }
 
 fn check_victory_condition(
+    mut commands: Commands,
     mut ev_check_level: EventReader<CheckLevelResultEvent>,
-    grid: Res<Grid>,
-    game_data: Res<GameData>,
+    mut grid: ResMut<Grid>,
+    mut game_data: ResMut<GameData>,
 ) {
     for ev in ev_check_level.iter() {
-        if grid.is_victory(game_data.level().balance_factor) {
+        let level = game_data.level();
+        if grid.is_victory(level.balance_factor, level.victory_margin) {
             println!("VICTORY!");
+            if let Some(level) = game_data.set_next_level() {
+                // Load new grid
+                grid.clear(Some(&mut commands));
+                grid.set_size(&level.grid_size);
+                // Reset inventory
+                game_data.inventory = game_data.level().inventory.clone();
+                // Rebuild grid entity
+                // TODO
+                // Show cursor
+                // TODO
+            }
         }
     }
 }
@@ -431,6 +455,7 @@ fn load_level_assets(
         name: "Hut".to_string(),
         grid_size: IVec2::new(3, 3),
         balance_factor: 1.0,
+        victory_margin: 0.001, // only 1 exact solution
         inventory: Inventory {
             items: vec![(
                 Buildable {
@@ -448,6 +473,7 @@ fn load_level_assets(
         name: "Neighborhood".to_string(),
         grid_size: IVec2::new(5, 5),
         balance_factor: 0.5,
+        victory_margin: 0.1, // TODO
         inventory: Inventory {
             items: vec![(
                 Buildable {
