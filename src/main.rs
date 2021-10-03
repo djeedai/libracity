@@ -410,6 +410,7 @@ fn check_victory_condition(
     mut game_data: ResMut<GameData>,
     query1: Query<(&Plate,)>,
     mut query2: Query<(&Cursor, &mut Visible, &mut Transform)>,
+    mut query3: Query<&mut Text, With<LevelNameText>>,
 ) {
     for ev in ev_check_level.iter() {
         let level = game_data.level();
@@ -419,8 +420,6 @@ fn check_victory_condition(
                 // Load new grid
                 grid.clear(Some(&mut commands));
                 grid.set_size(&level.grid_size);
-                // Reset inventory
-                game_data.inventory = game_data.level().inventory.clone();
                 // Rebuild grid entity
                 let cell_size = grid.cell_size();
                 let cell_mesh =
@@ -437,8 +436,12 @@ fn check_victory_condition(
                         Transform::from_translation(Vec3::new(cursor_fpos.x, 0.1, -cursor_fpos.y)) * Transform::from_scale(Vec3::new(cell_size.x, cell_size.x, cell_size.x)); // TODO - xy?
                 }
                 // Change title text
-                // TODO
+                if let Ok(mut text) = query3.single_mut() {
+                    text.sections[0].value = level.name.clone();
+                }
             }
+            // Reset inventory
+            game_data.inventory = game_data.level().inventory.clone();
         }
     }
 }
@@ -925,6 +928,8 @@ fn create_grid_tex() -> Texture {
     )
 }
 
+struct LevelNameText; // marker
+
 /// set up a simple 3D scene
 fn setup3d(
     game_data: Res<GameData>,
@@ -1045,5 +1050,5 @@ fn setup3d(
             },
         ),
         ..Default::default()
-    });
+    }).insert(LevelNameText);
 }
