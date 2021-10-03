@@ -734,7 +734,7 @@ fn regenerate_inventory_ui(
                     let mut xpos = 100.0 + 200.0 * (game_data.inventory.items.len() - 1) as f32;
                     let mut index = 0;
                     let font: Handle<Font> =
-                        asset_server.load("fonts/pacifico/Pacifico-Regular.ttf"); // TODO -- save somewhere
+                        asset_server.load("fonts/montserrat/Montserrat-Regular.ttf"); // TODO -- save somewhere
                     for (buildable, count) in game_data.inventory.items.iter() {
                         // Item slot with frame and item image
                         let mut frame = parent.spawn_bundle(NodeBundle {
@@ -1035,9 +1035,10 @@ fn create_axes_mesh() -> Mesh {
 
 fn draw_debug_axes_system(mut query: Query<(&Plate, &Transform)>, mut lines: ResMut<DebugLines>) {
     if let Ok((cursor, transform)) = query.single_mut() {
-        lines.line_colored(Vec3::ZERO, *transform * Vec3::X, 0.0, Color::RED);
-        lines.line_colored(Vec3::ZERO, *transform * Vec3::Y, 0.0, Color::GREEN);
-        lines.line_colored(Vec3::ZERO, *transform * Vec3::Z, 0.0, Color::BLUE);
+        //lines.line_colored(Vec3::ZERO, *transform * Vec3::X, 0.0, Color::RED);
+        //lines.line_colored(Vec3::ZERO, *transform * Vec3::Y, 0.0, Color::GREEN);
+        //lines.line_colored(Vec3::ZERO, *transform * Vec3::Z, 0.0, Color::BLUE);
+        lines.line_colored(Vec3::ZERO, *transform * Vec3::Y, 0.0, Color::BLACK);
     }
 }
 
