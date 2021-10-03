@@ -429,8 +429,7 @@ fn main() {
         .add_event::<UpdateInventorySlots>()
         .insert_resource(Grid::new())
         .insert_resource(GameData::new())
-        .add_startup_system(load_level_assets.system().label("load_level_assets"))
-        .add_startup_system(load_models.system().after("load_level_assets"))
+        .add_startup_system(load_level_assets.system())
         // == MainMenu state ==
         .add_system_set(
             SystemSet::on_enter(AppState::MainMenu).with_system(setup_main_menu.system()),
@@ -524,21 +523,6 @@ fn start_background_audio(asset_server: Res<AssetServer>, audio: Res<Audio>) {
     audio.play_looped(asset_server.load("audio/ambient1.mp3"));
 }
 
-fn load_models(
-    asset_server: Res<AssetServer>,
-    mut commands: Commands,
-    mut game_data: ResMut<GameData>,
-    meshes: Res<Assets<Mesh>>,
-    gltfs: Res<Assets<Gltf>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    println!("load_models");
-    //gltfs.iter().for_each(|(id, gltf)| println!("GLTF: {:?} {:?}", id, gltf));
-    for (id, gltf) in gltfs.iter() {
-        println!("GLTF: {:?} {:?}", id, gltf);
-    }
-}
-
 fn load_level_assets(
     asset_server: Res<AssetServer>,
     mut commands: Commands,
@@ -625,33 +609,18 @@ fn load_level_assets(
         balance_factor: 1.0,
         victory_margin: 0.001, // only 1 exact solution
         inventory: Inventory {
-            items: vec![
-                (
-                    Buildable {
-                        name: "Hut".to_string(),
-                        weight: 1.0,
-                        mesh: hut_mesh.clone(),
-                        material: hut_material.clone(),
-                        frame_material: hut_frame_material.clone(),
-                        frame_material_selected: hut_frame_material_selected.clone(),
-                        frame_material_empty: hut_frame_material_empty.clone(),
-                    },
-                    1,
-                ),
-                (
-                    // TEMP
-                    Buildable {
-                        name: "Chieftain Hut".to_string(),
-                        weight: 2.0,
-                        mesh: chieftain_hut_mesh.clone(),
-                        material: chieftain_hut_material.clone(),
-                        frame_material: chieftain_hut_frame_material.clone(),
-                        frame_material_selected: chieftain_hut_frame_material_selected.clone(),
-                        frame_material_empty: chieftain_hut_frame_material_empty.clone(),
-                    },
-                    2,
-                ),
-            ],
+            items: vec![(
+                Buildable {
+                    name: "Hut".to_string(),
+                    weight: 1.0,
+                    mesh: hut_mesh.clone(),
+                    material: hut_material.clone(),
+                    frame_material: hut_frame_material.clone(),
+                    frame_material_selected: hut_frame_material_selected.clone(),
+                    frame_material_empty: hut_frame_material_empty.clone(),
+                },
+                1,
+            )],
         },
     });
 
@@ -710,6 +679,7 @@ fn load_level_assets(
             ],
         },
     });
+
     // Create frame material for UI
     let frame_texture = asset_server.load("textures/frame.png");
     let frame_material = materials2d.add(ColorMaterial {
@@ -720,7 +690,6 @@ fn load_level_assets(
 
     // Load first level by default (this allows skipping the main menu while developping)
     game_data.set_level(0);
-    println!("Sending RegenerateInventoryUiEvent from load_level_assets()...");
     ev_regen_ui.send(RegenerateInventoryUiEvent {});
 }
 
@@ -967,15 +936,33 @@ fn setup_main_menu(
             .with_children(|parent| {
                 // Title itself
                 parent.spawn_bundle(TextBundle {
-                    text: Text::with_section(
-                        "Press Start",
-                        TextStyle {
-                            font: font.clone(),
-                            font_size: 80.0,
-                            color: Color::rgb_u8(192, 192, 192),
+                    text: Text {
+                        // Construct a `Vec` of `TextSection`s
+                        sections: vec![
+                            TextSection {
+                                value: "Press RETURN to start".to_string(),
+                                style: TextStyle {
+                                    font: asset_server
+                                        .load("fonts/montserrat/Montserrat-Regular.ttf"),
+                                    font_size: 40.0,
+                                    color: Color::WHITE,
+                                },
+                            },
+                            TextSection {
+                                value: "\nThis game plays with a keyboard only".to_string(),
+                                style: TextStyle {
+                                    font: asset_server
+                                        .load("fonts/montserrat/Montserrat-Regular.ttf"),
+                                    font_size: 20.0,
+                                    color: Color::GRAY,
+                                },
+                            },
+                        ],
+                        alignment: TextAlignment {
+                            vertical: VerticalAlign::Center,
+                            horizontal: HorizontalAlign::Center,
                         },
-                        text_align,
-                    ),
+                    },
                     ..Default::default()
                 });
             })
