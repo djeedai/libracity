@@ -130,12 +130,16 @@ impl GameData {
 // }
 
 struct Plate {
+    entity: Entity,
     rotate_speed: f32,
 }
 
 impl Plate {
-    pub fn new() -> Plate {
-        Plate { rotate_speed: 10.0 }
+    pub fn new(entity: Entity) -> Plate {
+        Plate {
+            entity,
+            rotate_speed: 10.0,
+        }
     }
 }
 
@@ -178,7 +182,9 @@ struct Grid {
     /// Origin offset. Odd sizes have the middle cell of the grid at the world origin, while even sizes
     /// are offset by 0.5 units such that the center of the grid (between cells) is at the world origin.
     foffset: Vec2,
+    grid_blocks: Vec<Entity>,
     entities: Vec<Entity>,
+    material: Handle<StandardMaterial>,
 }
 
 impl Grid {
@@ -187,10 +193,16 @@ impl Grid {
             size: IVec2::ZERO,
             content: vec![],
             foffset: Vec2::ZERO,
+            grid_blocks: vec![],
             entities: vec![],
+            material: Default::default(),
         };
         grid.set_size(&IVec2::new(8, 8));
         grid
+    }
+
+    pub fn set_material(&mut self, material: Handle<StandardMaterial>) {
+        self.material = material;
     }
 
     pub fn set_size(&mut self, size: &IVec2) {
@@ -198,6 +210,34 @@ impl Grid {
         self.size = *size;
         self.foffset = Vec2::new((1 - self.size.x % 2) as f32, (1 - self.size.y % 2) as f32) * 0.5;
         self.clear(None);
+    }
+
+    pub fn regenerate(&mut self, commands: &mut Commands, mesh: Handle<Mesh>, parent: Entity) {
+        // Destroy previous grid
+        for ent in self.grid_blocks.iter() {
+            commands.entity(*ent).despawn_recursive();
+        }
+        self.grid_blocks.clear();
+
+        // Regenerate
+        let min = self.min_pos();
+        let max = self.max_pos();
+        for j in min.y..max.y + 1 {
+            for i in min.x..max.x + 1 {
+                let fpos = self.fpos(&IVec2::new(i, j));
+                self.grid_blocks.push(
+                    commands
+                        .spawn_bundle(PbrBundle {
+                            mesh: mesh.clone(),
+                            material: self.material.clone(),
+                            transform: Transform::from_translation(Vec3::new(fpos.x, 0.0, -fpos.y)),
+                            ..Default::default()
+                        })
+                        .insert(Parent(parent))
+                        .id(),
+                );
+            }
+        }
     }
 
     pub fn min_pos(&self) -> IVec2 {
@@ -365,8 +405,10 @@ fn main() {
 fn check_victory_condition(
     mut commands: Commands,
     mut ev_check_level: EventReader<CheckLevelResultEvent>,
+    mut meshes: ResMut<Assets<Mesh>>,
     mut grid: ResMut<Grid>,
     mut game_data: ResMut<GameData>,
+    query: Query<(&Plate,)>,
 ) {
     for ev in ev_check_level.iter() {
         let level = game_data.level();
@@ -379,8 +421,15 @@ fn check_victory_condition(
                 // Reset inventory
                 game_data.inventory = game_data.level().inventory.clone();
                 // Rebuild grid entity
-                // TODO
+                let cell_size = grid.cell_size();
+                let cell_mesh =
+                    meshes.add(Mesh::from(shape::Box::new(cell_size.x, 0.1, cell_size.y))); // THIS IS WHY WE SHOULDN'T SCALE THE GRID BUT ONLY EXTEND IT, CAN'T REUSE THIS WHEN CELL SIZE CHANGES
+                if let Ok((plate,)) = query.single() {
+                    grid.regenerate(&mut commands, cell_mesh.clone(), plate.entity);
+                }
                 // Show cursor
+                // TODO
+                // Change title text
                 // TODO
             }
         }
@@ -885,12 +934,13 @@ fn setup3d(
     grid.set_size(&level.grid_size);
 
     // Create grid material
-    let texture_handle = textures.add(create_grid_tex());
-    let material_handle = materials.add(StandardMaterial {
-        base_color_texture: Some(texture_handle.clone()),
+    let grid_texture = textures.add(create_grid_tex());
+    let grid_material = materials.add(StandardMaterial {
+        base_color_texture: Some(grid_texture),
         unlit: true,
         ..Default::default()
     });
+    grid.set_material(grid_material.clone());
 
     // // Axes
     // commands.spawn_bundle(PbrBundle {
@@ -912,31 +962,17 @@ fn setup3d(
     // });
 
     // Plate
-    let plate = commands
-        .spawn()
+    let mut plate_cmds = commands.spawn();
+    let plate = plate_cmds.id();
+    plate_cmds
         .insert(Transform::identity())
         .insert(GlobalTransform::identity())
-        .insert(Plate::new())
-        .id();
+        .insert(Plate::new(plate));
 
     // Grid blocks
-    let min = grid.min_pos();
-    let max = grid.max_pos();
     let cell_size = grid.cell_size();
-    let cell_mesh = meshes.add(Mesh::from(shape::Box::new(cell_size.x, 0.1, cell_size.y)));
-    for j in min.y..max.y + 1 {
-        for i in min.x..max.x + 1 {
-            let fpos = grid.fpos(&IVec2::new(i, j));
-            commands
-                .spawn_bundle(PbrBundle {
-                    mesh: cell_mesh.clone(),
-                    material: material_handle.clone(), //materials.add(Color::rgb(0.8, 0.7, 0.6).into()),
-                    transform: Transform::from_translation(Vec3::new(fpos.x, 0.0, -fpos.y)),
-                    ..Default::default()
-                })
-                .insert(Parent(plate));
-        }
-    }
+    let cell_mesh = meshes.add(Mesh::from(shape::Box::new(cell_size.x, 0.1, cell_size.y))); // THIS IS WHY WE SHOULDN'T SCALE THE GRID BUT ONLY EXTEND IT, CAN'T REUSE THIS WHEN CELL SIZE CHANGES
+    grid.regenerate(&mut commands, cell_mesh.clone(), plate);
 
     // Cursor
     let cursor_mesh = meshes.add(Mesh::from(shape::Cube {
