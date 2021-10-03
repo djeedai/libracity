@@ -458,9 +458,9 @@ fn main() {
             SystemSet::on_enter(AppState::TheEnd).with_system(spawn_end_screen.system()),
         )
         // Initial state
-        //.add_state(AppState::MainMenu)
+        .add_state(AppState::MainMenu)
         //.add_state(AppState::InGame)
-        .add_state(AppState::TheEnd)
+        //.add_state(AppState::TheEnd)
         .run();
 }
 
@@ -690,7 +690,6 @@ fn load_level_assets(
 
     // Load first level by default (this allows skipping the main menu while developping)
     game_data.set_level(0);
-    ev_regen_ui.send(RegenerateInventoryUiEvent {});
 }
 
 struct RegenerateInventoryUiEvent;
@@ -1203,6 +1202,7 @@ fn setup3d(
     mut meshes: ResMut<Assets<Mesh>>,
     mut textures: ResMut<Assets<Texture>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut ev_regen_ui: EventWriter<RegenerateInventoryUiEvent>,
 ) {
     let level = game_data.level();
 
@@ -1318,6 +1318,9 @@ fn setup3d(
             ..Default::default()
         })
         .insert(LevelNameText); // marker to allow finding this text to change it
+
+    // Regenerate the inventory UI before starting to play
+    ev_regen_ui.send(RegenerateInventoryUiEvent {});
 }
 
 fn cleanup3d(mut query: Query<(&mut Visible,)>) {
