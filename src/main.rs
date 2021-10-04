@@ -1,6 +1,7 @@
 #![allow(dead_code, unused_imports, unused_variables)]
 
 use bevy::{
+    asset::AssetServerSettings,
     app::AppExit,
     diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
     gltf::{Gltf, GltfMesh},
@@ -417,10 +418,16 @@ impl Grid {
 static DEBUG: &str = "debug";
 
 fn main() {
+    #[cfg(target_arch = "wasm32")]
+    console_error_panic_hook::set_once();
+
     let mut diag = LogDiagnosticsPlugin::default();
     diag.debug = true;
-    App::build()
-        // Window
+    let mut app = App::build();
+    app // Window
+        .insert_resource(AssetServerSettings {
+            asset_folder: "assets".to_string(),
+        })
         .insert_resource(WindowDescriptor {
             title: "Libra City".to_string(),
             vsync: true,
@@ -429,15 +436,19 @@ fn main() {
         // .insert_resource(ClearColor(Color::rgb(0.9, 0.9, 0.9)))
         .insert_resource(Msaa { samples: 4 })
         .add_system(bevy::input::system::exit_on_esc_system.system())
+        //.add_plugin(FrameTimeDiagnosticsPlugin::default())
         // Plugins
-        .add_plugins(DefaultPlugins)
-        .add_plugin(DebugLinesPlugin)
+        .add_plugins(DefaultPlugins);
+
+    #[cfg(target_arch = "wasm32")]
+    app.add_plugin(bevy_webgl2::WebGL2Plugin);
+
+    app.add_plugin(DebugLinesPlugin)
         .insert_resource(DebugLines {
             depth_test: true,
             ..Default::default()
         })
         .add_plugin(diag)
-        //.add_plugin(FrameTimeDiagnosticsPlugin::default())
         // Audio (Kira)
         .add_plugin(AudioPlugin)
         .add_startup_system(start_background_audio.system())
@@ -573,7 +584,7 @@ fn check_victory_condition(
 }
 
 fn start_background_audio(asset_server: Res<AssetServer>, audio: Res<Audio>) {
-    audio.play_looped(asset_server.load("audio/ambient1.mp3"));
+    //audio.play_looped(asset_server.load("audio/ambient1.mp3"));
 }
 
 fn load_level_assets(
@@ -604,14 +615,16 @@ fn load_level_assets(
     // });
 
     // Load all models in the models/ folder in parallel
-    let _: Vec<HandleUntyped> = asset_server.load_folder("models").unwrap();
+    // Not working with WASM? -- https://github.com/bevyengine/bevy/issues/2916
+    //let _: Vec<HandleUntyped> = asset_server.load_folder("models").unwrap();
 
     let color_unselected = Color::rgba(1.0, 1.0, 1.0, 0.5);
     let color_selected = Color::rgba(1.0, 1.0, 1.0, 1.0);
     let color_empty = Color::rgba(1.0, 0.8, 0.8, 0.5);
 
     // Hut
-    let hut_mesh: Handle<Mesh> = asset_server.get_handle("models/hut.gltf#Mesh0/Primitive0");
+    //let hut_mesh: Handle<Mesh> = asset_server.get_handle("models/hut.gltf#Mesh0/Primitive0");
+    let hut_mesh: Handle<Mesh> = asset_server.load("models/hut.gltf#Mesh0/Primitive0");
     commands.insert_resource(hut_mesh.clone());
     let hut_material = materials.add(StandardMaterial {
         // TODO - from file?
@@ -633,8 +646,8 @@ fn load_level_assets(
     });
 
     // Chieftain Hut
-    let chieftain_hut_mesh: Handle<Mesh> =
-        asset_server.get_handle("models/chieftain_hut.gltf#Mesh0/Primitive0");
+    //let chieftain_hut_mesh: Handle<Mesh> = asset_server.get_handle("models/chieftain_hut.gltf#Mesh0/Primitive0");
+    let chieftain_hut_mesh: Handle<Mesh> = asset_server.load("models/chieftain_hut.gltf#Mesh0/Primitive0");
     commands.insert_resource(chieftain_hut_mesh.clone());
     let chieftain_hut_material = materials.add(StandardMaterial {
         // TODO - from file?
