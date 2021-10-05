@@ -1,8 +1,8 @@
 #![allow(dead_code, unused_imports, unused_variables)]
 
 use bevy::{
-    asset::AssetServerSettings,
     app::AppExit,
+    asset::AssetServerSettings,
     diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
     gltf::{Gltf, GltfMesh},
     prelude::*,
@@ -443,12 +443,16 @@ fn main() {
     #[cfg(target_arch = "wasm32")]
     app.add_plugin(bevy_webgl2::WebGL2Plugin);
 
+    // Shaders shipped with bevy_prototype_debug_lines are not compatible with WebGL due to version
+    // https://github.com/mrk-its/bevy_webgl2/issues/21
+    #[cfg(not(target_arch = "wasm32"))]
     app.add_plugin(DebugLinesPlugin)
         .insert_resource(DebugLines {
             depth_test: true,
             ..Default::default()
-        })
-        .add_plugin(diag)
+        });
+
+    app.add_plugin(diag)
         // Audio (Kira)
         .add_plugin(AudioPlugin)
         .add_startup_system(start_background_audio.system())
@@ -647,7 +651,8 @@ fn load_level_assets(
 
     // Chieftain Hut
     //let chieftain_hut_mesh: Handle<Mesh> = asset_server.get_handle("models/chieftain_hut.gltf#Mesh0/Primitive0");
-    let chieftain_hut_mesh: Handle<Mesh> = asset_server.load("models/chieftain_hut.gltf#Mesh0/Primitive0");
+    let chieftain_hut_mesh: Handle<Mesh> =
+        asset_server.load("models/chieftain_hut.gltf#Mesh0/Primitive0");
     commands.insert_resource(chieftain_hut_mesh.clone());
     let chieftain_hut_material = materials.add(StandardMaterial {
         // TODO - from file?
@@ -1144,6 +1149,7 @@ fn create_axes_mesh() -> Mesh {
     mesh
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn draw_debug_axes_system(mut query: Query<(&Plate, &Transform)>, mut lines: ResMut<DebugLines>) {
     if let Ok((cursor, transform)) = query.single_mut() {
         //lines.line_colored(Vec3::ZERO, *transform * Vec3::X, 0.0, Color::RED);
@@ -1152,6 +1158,9 @@ fn draw_debug_axes_system(mut query: Query<(&Plate, &Transform)>, mut lines: Res
         lines.line_colored(Vec3::ZERO, *transform * Vec3::Y, 0.0, Color::BLACK);
     }
 }
+
+#[cfg(target_arch = "wasm32")]
+fn draw_debug_axes_system() {}
 
 fn plate_movement_system(
     time: Res<Time>,
