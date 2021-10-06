@@ -588,7 +588,7 @@ fn check_victory_condition(
 }
 
 fn start_background_audio(asset_server: Res<AssetServer>, audio: Res<Audio>) {
-    //audio.play_looped(asset_server.load("audio/ambient1.mp3"));
+    audio.play_looped(asset_server.load("audio/ambient1.ogg"));
 }
 
 fn load_level_assets(
