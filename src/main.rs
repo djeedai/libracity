@@ -19,6 +19,9 @@ use bevy_kira_audio::{Audio, AudioChannel, AudioPlugin};
 use bevy_prototype_debug_lines::{DebugLines, DebugLinesPlugin};
 use std::f32::consts::*;
 
+#[cfg(debug_assertions)]
+use bevy_inspector_egui::WorldInspectorPlugin;
+
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 enum AppState {
     MainMenu,
@@ -443,25 +446,23 @@ fn main() {
     #[cfg(target_arch = "wasm32")]
     app.add_plugin(bevy_webgl2::WebGL2Plugin);
 
-    // Shaders shipped with bevy_prototype_debug_lines are not compatible with WebGL due to version
-    // https://github.com/mrk-its/bevy_webgl2/issues/21
-    #[cfg(not(target_arch = "wasm32"))]
-    app.add_plugin(DebugLinesPlugin)
-        .insert_resource(DebugLines {
-            depth_test: true,
-            ..Default::default()
-        });
+
+    // In Debug build only, add egui inspector to help
+    #[cfg(debug_assertions)]
+    app.add_plugin(WorldInspectorPlugin::new());
 
     app.add_plugin(diag)
         // Audio (Kira)
         .add_plugin(AudioPlugin)
         .add_startup_system(start_background_audio.system())
-        // Resources
+        // Events
         .add_event::<CheckLevelResultEvent>()
         .add_event::<RegenerateInventoryUiEvent>()
         .add_event::<UpdateInventorySlots>()
+        // Resources
         .insert_resource(Grid::new())
         .insert_resource(GameData::new())
+        // Asset loading
         .add_startup_system(load_level_assets.system())
         // == MainMenu state ==
         .add_system_set(
