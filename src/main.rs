@@ -16,7 +16,7 @@ use bevy::{
     sprite::collide_aabb::{collide, Collision},
 };
 use bevy_kira_audio::{Audio, AudioChannel, AudioPlugin};
-use bevy_prototype_debug_lines::{DebugLines, DebugLinesPlugin};
+//use bevy_prototype_debug_lines::{DebugLines, DebugLinesPlugin};
 use std::f32::consts::*;
 
 #[cfg(debug_assertions)]
@@ -446,6 +446,14 @@ fn main() {
     #[cfg(target_arch = "wasm32")]
     app.add_plugin(bevy_webgl2::WebGL2Plugin);
 
+    // // Shaders shipped with bevy_prototype_debug_lines are not compatible with WebGL due to version
+    // // https://github.com/mrk-its/bevy_webgl2/issues/21
+    // #[cfg(not(target_arch = "wasm32"))]
+    // app.add_plugin(DebugLinesPlugin)
+    //     .insert_resource(DebugLines {
+    //         depth_test: true,
+    //         ..Default::default()
+    //     });
 
     // In Debug build only, add egui inspector to help
     #[cfg(debug_assertions)]
@@ -1150,15 +1158,16 @@ fn create_axes_mesh() -> Mesh {
     mesh
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-fn draw_debug_axes_system(mut query: Query<(&Plate, &Transform)>, mut lines: ResMut<DebugLines>) {
-    if let Ok((cursor, transform)) = query.single_mut() {
-        //lines.line_colored(Vec3::ZERO, *transform * Vec3::X, 0.0, Color::RED);
-        //lines.line_colored(Vec3::ZERO, *transform * Vec3::Y, 0.0, Color::GREEN);
-        //lines.line_colored(Vec3::ZERO, *transform * Vec3::Z, 0.0, Color::BLUE);
-        lines.line_colored(Vec3::ZERO, *transform * Vec3::Y, 0.0, Color::BLACK);
-    }
-}
+// #[cfg(debug_assertions)]
+// #[cfg(not(target_arch = "wasm32"))]
+// fn draw_debug_axes_system(mut query: Query<(&Plate, &Transform)>, mut lines: ResMut<DebugLines>) {
+//     // if let Ok((cursor, transform)) = query.single_mut() {
+//     //     //lines.line_colored(Vec3::ZERO, *transform * Vec3::X, 0.0, Color::RED);
+//     //     //lines.line_colored(Vec3::ZERO, *transform * Vec3::Y, 0.0, Color::GREEN);
+//     //     //lines.line_colored(Vec3::ZERO, *transform * Vec3::Z, 0.0, Color::BLUE);
+//     //     lines.line_colored(Vec3::ZERO, *transform * Vec3::Y, 0.0, Color::BLACK);
+//     // }
+// }
 
 #[cfg(target_arch = "wasm32")]
 fn draw_debug_axes_system() {}

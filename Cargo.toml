@@ -23,8 +23,8 @@ web = [
 
 [dependencies]
 bevy = { version = "0.5", default-features = false }
-bevy_kira_audio = { version = "0.6" }
-bevy_prototype_debug_lines = "0.3"
+bevy_kira_audio = "0.6"
+#bevy_prototype_debug_lines = "0.3"
 bevy-inspector-egui = "0.5"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
