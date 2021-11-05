@@ -493,11 +493,11 @@ fn main() {
                         .system()
                         .label("plate_movement_system"),
                 )
-                .with_system(
-                    draw_debug_axes_system
-                        .system()
-                        .label("draw_debug_axes_system"),
-                )
+                // .with_system(
+                //     draw_debug_axes_system
+                //         .system()
+                //         .label("draw_debug_axes_system"),
+                // )
                 .with_system(
                     cursor_movement_system
                         .system()

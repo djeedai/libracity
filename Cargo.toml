@@ -8,16 +8,21 @@ license = "MIT OR Apache-2.0"
 
 [features]
 default = [
+  "native",
+]
+shared = [
   "bevy/bevy_gltf",
   "bevy/bevy_winit",
   "bevy/render",
   "bevy/png",
 ]
 native = [
+  "shared",
   "bevy/bevy_wgpu",
   "bevy_kira_audio/mp3",
 ]
 web = [
+  "shared",
   "bevy_webgl2"
 ]
 

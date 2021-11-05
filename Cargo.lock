@@ -515,15 +515,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bevy_prototype_debug_lines"
-version = "0.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "70e5d04fa850cbfdc7b2525bb0d41ed3b19b0da7c013a09ce9ce85949f5b3102"
-dependencies = [
- "bevy",
-]
-
-[[package]]
 name = "bevy_reflect"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2057,7 +2048,6 @@ dependencies = [
  "bevy",
  "bevy-inspector-egui",
  "bevy_kira_audio",
- "bevy_prototype_debug_lines",
  "bevy_webgl2",
  "console_error_panic_hook",
  "wasm-bindgen",
