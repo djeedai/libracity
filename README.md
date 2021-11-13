@@ -1,5 +1,9 @@
 # 🏙 LibraCity - City planning on a needle
 
+[![MIT/Apache 2.0](https://img.shields.io/badge/License-MIT%2FApache-blue.svg)](./LICENSE)
+[![Rust](https://github.com/djeedai/libracity/workflows/CI/badge.svg)](https://github.com/djeedai/libracity/actions)
+[![Play](https://img.shields.io/badge/PlayOnline-github.io-ff69b4)](https://djeedai.github.io/libracity/)
+
 LibraCity is a city planning game on a needle. Literally. In this puzzle game, the entire city rests on a base plate at equilibrium over a needle. Adding buildings destabilizes the entire city. Complete each level by laying out the required buildings while keeping the stability of the entire city.
 
 ![Libra City early screenshot](media/cover_image.png)
