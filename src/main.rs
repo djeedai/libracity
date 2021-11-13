@@ -1,4 +1,5 @@
 #![allow(dead_code, unused_imports, unused_variables)]
+#![feature(hash_drain_filter)]
 
 use bevy::{
     app::AppExit,
@@ -17,174 +18,50 @@ use bevy::{
 };
 use bevy_kira_audio::{Audio, AudioChannel, AudioPlugin};
 //use bevy_prototype_debug_lines::{DebugLines, DebugLinesPlugin};
-use std::f32::consts::*;
+use serde::Deserialize;
+use std::{collections::HashMap, f32::consts::*, fs::File, io::Read};
 
 #[cfg(debug_assertions)]
 use bevy_inspector_egui::WorldInspectorPlugin;
 
+mod error;
+mod inventory;
+mod level;
+mod serialize;
+mod text_asset;
+
+use crate::{
+    error::Error,
+    inventory::{
+        Buildable, Inventory, InventoryPlugin, RegenerateInventoryUiEvent, SelectSlot,
+        SelectSlotEvent, Slot, SlotState, UpdateInventorySlots,
+    },
+    level::{Level, LevelNameText, LevelPlugin, LoadLevel, LoadLevelEvent},
+    serialize::{Buildables, ConfigLoadedEvent, Levels, SerializePlugin},
+    text_asset::{TextAsset, TextAssetPlugin},
+};
+
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 enum AppState {
+    /// Main menu, while still loading.
+    MainMenuLoading,
+    /// Main menu at startup.
     MainMenu,
+    /// Playing a game level.
     InGame,
+    /// End screen.
     TheEnd,
 }
 
-#[derive(Debug, Clone)]
-struct Buildable {
-    name: String,
-    weight: f32,
-    //stackable: bool,
-    mesh: Handle<Mesh>,
-    material: Handle<StandardMaterial>,
-    frame_material: Handle<ColorMaterial>,
-    frame_material_selected: Handle<ColorMaterial>,
-    frame_material_empty: Handle<ColorMaterial>,
-}
-
-impl Buildable {
-    pub fn get_material(&self, count: u32, selected: bool) -> Handle<ColorMaterial> {
-        if count == 0 {
-            self.frame_material_empty.clone()
-        } else {
-            if selected {
-                self.frame_material_selected.clone()
-            } else {
-                self.frame_material.clone()
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-struct Inventory {
-    items: Vec<(Buildable, u32)>, // TODO - ref to Buildable static data, not copy
-}
-
-impl Inventory {
-    pub fn new() -> Inventory {
-        Inventory { items: vec![] }
-    }
-
-    pub fn pop_item(&mut self, index: u32) -> Option<&Buildable> {
-        let index = index as usize;
-        if index < self.items.len() && self.items[index].1 > 0 {
-            self.items[index].1 -= 1;
-            println!(
-                "Removed 1 item from slot #{}, left: {}",
-                index, self.items[index].1
-            );
-            Some(&self.items[index].0)
-        } else {
-            None
-        }
-    }
-
-    pub fn item_count(&self, index: u32) -> u32 {
-        let index = index as usize;
-        self.items[index].1
-    }
-
-    pub fn has_any_item(&self) -> bool {
-        self.items.iter().fold(0u32, |acc, x| acc + x.1) > 0
-    }
-
-    pub fn find_non_empty_slot(&self) -> Option<u32> {
-        for (index, item) in self.items.iter().enumerate() {
-            if item.1 > 0 {
-                return Some(index as u32);
-            }
-        }
-        None
-    }
-}
-
-struct Level {
-    name: String,
-    grid_size: IVec2,
-    balance_factor: f32,
-    victory_margin: f32,
-    inventory: Inventory,
-}
-
-struct GameData {
-    levels: Vec<Level>,
-    current_level_index: u32,
-    inventory: Inventory, // TODO - ref? or just number of items + ref into which items
-    current_inventory_index: i32,
-    frame_material: Handle<ColorMaterial>,
-    inventory_ui_root_node: Option<Entity>,
+struct EntityManager {
     // HACK to delete everything on TheEnd screen
     all_entities: Vec<Entity>,
 }
 
-impl GameData {
-    pub fn new() -> GameData {
-        GameData {
-            levels: vec![],
-            current_level_index: 0,
-            inventory: Inventory::new(),
-            current_inventory_index: 0,
-            frame_material: Default::default(),
-            inventory_ui_root_node: None,
+impl EntityManager {
+    pub fn new() -> EntityManager {
+        EntityManager {
             all_entities: vec![],
-        }
-    }
-
-    pub fn set_frame_material(&mut self, frame_material: Handle<ColorMaterial>) {
-        self.frame_material = frame_material;
-    }
-
-    pub fn add_level(&mut self, level: Level) {
-        self.levels.push(level);
-    }
-
-    pub fn level(&self) -> &Level {
-        &self.levels[self.current_level_index as usize]
-    }
-
-    // pub fn level_mut(&mut self) -> &mut Level {
-    //     let index = self.current_level_index as usize;
-    //     &mut self.levels[index]
-    // }
-
-    pub fn set_level(&mut self, index: u32) {
-        self.current_level_index = index;
-        self.inventory = self.level().inventory.clone();
-    }
-
-    pub fn set_next_level(&mut self) -> Option<&Level> {
-        if ((self.current_level_index + 1) as usize) < self.levels.len() {
-            self.current_level_index += 1;
-            self.inventory = self.level().inventory.clone();
-            Some(self.level())
-        } else {
-            None
-        }
-    }
-
-    pub fn selected_slot(&self) -> &Buildable {
-        &self.inventory.items[self.current_inventory_index as usize].0
-    }
-
-    pub fn select_prev(&mut self) -> Option<&Buildable> {
-        let len = self.inventory.items.len() as i32;
-        let prev_index = ((self.current_inventory_index + len - 1) % len) as usize;
-        if self.inventory.items[prev_index].1 > 0 {
-            self.current_inventory_index = prev_index as i32;
-            Some(&self.inventory.items[prev_index].0)
-        } else {
-            None
-        }
-    }
-
-    pub fn select_next(&mut self) -> Option<&Buildable> {
-        let len = self.inventory.items.len() as i32;
-        let next_index = ((self.current_inventory_index + 1) % len) as usize;
-        if self.inventory.items[next_index].1 > 0 {
-            self.current_inventory_index = next_index as i32;
-            Some(&self.inventory.items[next_index].0)
-        } else {
-            None
         }
     }
 }
@@ -192,6 +69,8 @@ impl GameData {
 // fn exit_system(mut exit: EventWriter<AppExit>) {
 //     exit.send(AppExit);
 // }
+
+pub struct ResetPlateEvent;
 
 struct Plate {
     entity: Entity,
@@ -207,10 +86,33 @@ impl Plate {
     }
 }
 
-struct Cursor {
+fn plate_reset_system(
+    mut commands: Commands,
+    mut ev_reset_plate: EventReader<ResetPlateEvent>,
+    mut grid: ResMut<Grid>,
+    query_plate: Query<(&Plate,)>,
+    mut meshes: ResMut<Assets<Mesh>>,
+) {
+    // Consume all reset events, do the work once
+    if let Some(_) = ev_reset_plate.iter().last() {
+        trace!("plate_reset_system() - GOT EVENT");
+
+        // Clear grid
+        grid.clear(Some(&mut commands));
+
+        // Rebuild plate with N copies of a single 'cell' mesh laid out in grid
+        if let Ok((plate,)) = query_plate.single() {
+            // TODO - cache mesh
+            let cell_mesh = meshes.add(Mesh::from(shape::Box::new(1.0, 0.1, 1.0)));
+            grid.regenerate(&mut commands, cell_mesh.clone(), plate.entity);
+        }
+    }
+}
+
+pub struct Cursor {
     pos: IVec2,
     move_speed: f32,
-    weight: f32,
+    //weight: f32,
     cursor_entity: Entity,
     cursor_mesh: Handle<Mesh>,
     cursor_mat: Handle<StandardMaterial>,
@@ -222,7 +124,7 @@ impl Cursor {
         Cursor {
             pos: IVec2::ZERO,
             move_speed: 1.0,
-            weight: 1.0,
+            //weight: 1.0,
             cursor_entity,
             cursor_mesh: Default::default(),
             cursor_mat: Default::default(),
@@ -240,7 +142,7 @@ impl Cursor {
     // }
 }
 
-struct Grid {
+pub struct Grid {
     size: IVec2,
     content: Vec<f32>,
     /// Origin offset. Odd sizes have the middle cell of the grid at the world origin, while even sizes
@@ -270,13 +172,15 @@ impl Grid {
     }
 
     pub fn set_size(&mut self, size: &IVec2) {
-        println!("Grid::set_size({}, {})", size.x, size.y);
+        trace!("Grid::set_size({}, {})", size.x, size.y);
         self.size = *size;
         self.foffset = Vec2::new((1 - self.size.x % 2) as f32, (1 - self.size.y % 2) as f32) * 0.5;
         self.clear(None);
     }
 
     pub fn regenerate(&mut self, commands: &mut Commands, mesh: Handle<Mesh>, parent: Entity) {
+        trace!("Grid::regenerate() size={}", self.size);
+
         // Destroy previous grid
         for ent in self.grid_blocks.iter() {
             commands.entity(*ent).despawn_recursive();
@@ -322,10 +226,6 @@ impl Grid {
         IVec2::new(pos.x.clamp(min.x, max.x), pos.y.clamp(min.y, max.y))
     }
 
-    pub fn cell_size(&self) -> Vec2 {
-        Vec2::new(1.0 / self.size.x as f32, 1.0 / self.size.y as f32)
-    }
-
     pub fn hit_test(&self, pos: &Vec2) -> Option<IVec2> {
         let min = self.min_pos();
         let max = self.max_pos();
@@ -336,9 +236,8 @@ impl Grid {
         {
             None
         } else {
-            let cs = self.cell_size();
-            let x = (pos.x / cs.x) as i32;
-            let y = (pos.y / cs.y) as i32;
+            let x = pos.x as i32;
+            let y = pos.y as i32;
             Some(IVec2::new(x, y))
         }
     }
@@ -352,11 +251,7 @@ impl Grid {
 
     /// Position of the center of the cell from its grid coordinates.
     pub fn fpos(&self, pos: &IVec2) -> Vec2 {
-        let cs = self.cell_size();
-        Vec2::new(
-            (pos.x as f32 + self.foffset.x) * cs.x,
-            (pos.y as f32 + self.foffset.y) * cs.y,
-        )
+        Vec2::new(pos.x as f32 + self.foffset.x, pos.y as f32 + self.foffset.y)
     }
 
     pub fn can_spawn_item(&mut self, pos: &IVec2) -> bool {
@@ -400,7 +295,7 @@ impl Grid {
     }
 
     pub fn clear(&mut self, commands: Option<&mut Commands>) {
-        println!("CLEAR TABLE");
+        trace!("Grid::clear()");
         self.content.clear();
         self.content
             .resize(self.size.x as usize * self.size.y as usize, 0.0);
@@ -413,7 +308,7 @@ impl Grid {
 
     pub fn is_victory(&self, balance_factor: f32, victory_margin: f32) -> bool {
         let w00 = self.calc_cog_offset(balance_factor);
-        println!("victory: w00={:?} len={}", w00, w00.length());
+        debug!("victory: w00={:?} len={}", w00, w00.length());
         w00.length() < victory_margin
     }
 }
@@ -426,8 +321,16 @@ fn main() {
 
     let mut diag = LogDiagnosticsPlugin::default();
     diag.debug = true;
+
     let mut app = App::build();
-    app // Window
+    app
+        // Logging
+        .insert_resource(bevy::log::LogSettings {
+            level: bevy::log::Level::INFO,
+            filter: "wgpu=error,bevy_render=info,libracity=trace".to_string(),
+        })
+        .add_plugin(diag)
+        // Window
         .insert_resource(AssetServerSettings {
             asset_folder: "assets".to_string(),
         })
@@ -443,6 +346,7 @@ fn main() {
         // Plugins
         .add_plugins(DefaultPlugins);
 
+    // Browsers don't support wgpu, use the WebGL2 rendering backend instead
     #[cfg(target_arch = "wasm32")]
     app.add_plugin(bevy_webgl2::WebGL2Plugin);
 
@@ -459,22 +363,31 @@ fn main() {
     #[cfg(debug_assertions)]
     app.add_plugin(WorldInspectorPlugin::new());
 
-    app.add_plugin(diag)
+    app
         // Audio (Kira)
         .add_plugin(AudioPlugin)
         .add_startup_system(start_background_audio.system())
         // Events
         .add_event::<CheckLevelResultEvent>()
-        .add_event::<RegenerateInventoryUiEvent>()
-        .add_event::<UpdateInventorySlots>()
+        .add_event::<ResetPlateEvent>()
         // Resources
         .insert_resource(Grid::new())
-        .insert_resource(GameData::new())
+        .insert_resource(EntityManager::new())
+        .insert_resource(UiResources::new())
         // Asset loading
-        .add_startup_system(load_level_assets.system())
+        .add_plugin(TextAssetPlugin)
+        .add_plugin(SerializePlugin)
+        .add_startup_system(setup_ui_resources.system())
+        // Level loading
+        .add_plugin(LevelPlugin)
+        // Inventory management
+        .add_plugin(InventoryPlugin)
         // == MainMenu state ==
         .add_system_set(
-            SystemSet::on_enter(AppState::MainMenu).with_system(setup_main_menu.system()),
+            SystemSet::on_enter(AppState::MainMenuLoading).with_system(setup_main_menu.system()),
+        )
+        .add_system_set(
+            SystemSet::on_update(AppState::MainMenuLoading).with_system(loading_ui.system()),
         )
         .add_system_set(
             SystemSet::on_update(AppState::MainMenu).with_system(handle_ui_buttons.system()),
@@ -486,6 +399,12 @@ fn main() {
         .add_system_set(
             SystemSet::on_enter(AppState::InGame).with_system(setup3d.system().label("setup3d")),
         )
+        // FIXME - Broken in 0.5 apparently
+        // .add_system_set_to_stage(
+        //     CoreStage::PreUpdate,
+        //     SystemSet::on_update(AppState::InGame).with_system(inputs_system.system()),
+        // )
+        .add_system_set(SystemSet::on_update(AppState::InGame).with_system(inputs_system.system()))
         .add_system_set(
             SystemSet::on_update(AppState::InGame)
                 .with_system(
@@ -493,6 +412,7 @@ fn main() {
                         .system()
                         .label("plate_movement_system"),
                 )
+                .with_system(plate_reset_system.system())
                 // .with_system(
                 //     draw_debug_axes_system
                 //         .system()
@@ -508,13 +428,7 @@ fn main() {
                     check_victory_condition
                         .system()
                         .label("check_victory_condition"),
-                )
-                .with_system(
-                    regenerate_inventory_ui
-                        .system()
-                        .label("regenerate_inventory_ui"),
-                )
-                .with_system(inventory_ui_system.system()),
+                ),
         )
         //.add_stage_after(CoreStage::Update, DEBUG, SystemStage::single_threaded())
         .add_system_set(
@@ -522,9 +436,8 @@ fn main() {
                 cleanup3d
                     .system()
                     .after("setup3d")
-                    .after("regenerate_inventory_ui")
                     .after("plate_movement_system")
-                    .after("draw_debug_axes_system")
+                    //.after("draw_debug_axes_system")
                     .after("cursor_movement_system")
                     .after("plate_balance_system")
                     .after("check_victory_condition"),
@@ -535,63 +448,32 @@ fn main() {
             SystemSet::on_enter(AppState::TheEnd).with_system(spawn_end_screen.system()),
         )
         // Initial state
-        .add_state(AppState::MainMenu)
+        .add_state(AppState::MainMenuLoading)
+        //.add_state(AppState::MainMenu)
         //.add_state(AppState::InGame)
         //.add_state(AppState::TheEnd)
         .run();
 }
 
 fn check_victory_condition(
-    mut commands: Commands,
+    grid: Res<Grid>,
+    level: Res<Level>,
+    levels: Res<Levels>,
     mut ev_check_level: EventReader<CheckLevelResultEvent>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut grid: ResMut<Grid>,
-    mut game_data: ResMut<GameData>,
-    query1: Query<(&Plate,)>,
-    mut query2: Query<(&Cursor, &mut Visible, &mut Transform)>,
-    mut query3: Query<&mut Text, With<LevelNameText>>,
-    mut ev_regen_ui: EventWriter<RegenerateInventoryUiEvent>,
-    mut state: ResMut<State<AppState>>,
+    mut ev_load_level: EventWriter<LoadLevelEvent>,
 ) {
-    for ev in ev_check_level.iter() {
-        let level = game_data.level();
-        if grid.is_victory(level.balance_factor, level.victory_margin) {
-            println!("VICTORY!");
-            // Try to transition to the next level after this one
-            if let Some(level) = game_data.set_next_level() {
-                // Load new grid
-                grid.clear(Some(&mut commands));
-                grid.set_size(&level.grid_size);
-                // Rebuild grid entity
-                let cell_size = grid.cell_size();
-                let cell_mesh =
-                    meshes.add(Mesh::from(shape::Box::new(cell_size.x, 0.1, cell_size.y))); // THIS IS WHY WE SHOULDN'T SCALE THE GRID BUT ONLY EXTEND IT, CAN'T REUSE THIS WHEN CELL SIZE CHANGES
-                if let Ok((plate,)) = query1.single() {
-                    grid.regenerate(&mut commands, cell_mesh.clone(), plate.entity);
-                }
-                // Show cursor
-                if let Ok((cursor, mut visible, mut transform)) = query2.single_mut() {
-                    visible.is_visible = true;
-                    let cursor_fpos = grid.fpos(&cursor.pos);
-                    let cell_size = grid.cell_size();
-                    *transform =
-                        Transform::from_translation(Vec3::new(cursor_fpos.x, 0.1, -cursor_fpos.y))
-                            * Transform::from_scale(Vec3::new(
-                                cell_size.x * 3.0,
-                                cell_size.x,
-                                cell_size.x * 3.0,
-                            )); // TODO - xy?
-                }
-                // Change title text
-                if let Ok(mut text) = query3.single_mut() {
-                    text.sections[0].value = level.name.clone();
-                }
-                // Reset inventory
-                ev_regen_ui.send(RegenerateInventoryUiEvent {});
-            } else {
-                println!("=== THE END ===");
-                state.set(AppState::TheEnd).unwrap();
-            }
+    if let Some(ev) = ev_check_level.iter().last() {
+        let level_index = level.index();
+        let level_desc = &levels.levels()[level_index];
+        if grid.is_victory(level_desc.balance_factor(), level_desc.victory_margin()) {
+            info!("VICTORY!");
+            // Try to transition to next level. If there's none, this will transition
+            // automatically to next stage ([`TheEnd`]).
+            // TODO - Instead of deciding here that "end of current level == load next",
+            //        send an event to some game/level manager that will decide what to do,
+            //        which avoids having to expose AppState::TheEnd to the Level module.
+            //        This also allows playing some "level cleared" transition while loading.
+            ev_load_level.send(LoadLevelEvent(LoadLevel::Next));
         }
     }
 }
@@ -600,351 +482,64 @@ fn start_background_audio(asset_server: Res<AssetServer>, audio: Res<Audio>) {
     audio.play_looped(asset_server.load("audio/ambient1.ogg"));
 }
 
-fn load_level_assets(
-    asset_server: Res<AssetServer>,
-    mut commands: Commands,
-    mut game_data: ResMut<GameData>,
-    meshes: Res<Assets<Mesh>>,
-    gltfs: Res<Assets<Gltf>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut materials2d: ResMut<Assets<ColorMaterial>>,
-    mut ev_regen_ui: EventWriter<RegenerateInventoryUiEvent>,
-) {
-    println!("load_level_assets");
-
-    // OK
-    //commands.spawn_scene(asset_server.load("models/hut.gltf#Scene0"));
-
-    // OK
-    // let hh: Handle<Mesh> = asset_server.load("models/hut.gltf#Mesh0/Primitive0");
-    // commands.insert_resource(hh.clone());
-    // commands.spawn_bundle(PbrBundle{
-    //     material: materials.add(StandardMaterial {
-    //         base_color: Color::rgb(0.8, 0.7, 0.6),
-    //         ..Default::default()
-    //     }),
-    //     mesh: hh.clone(),
-    //     ..Default::default()
-    // });
-
-    // Load all models in the models/ folder in parallel
-    // Not working with WASM? -- https://github.com/bevyengine/bevy/issues/2916
-    //let _: Vec<HandleUntyped> = asset_server.load_folder("models").unwrap();
-
-    let color_unselected = Color::rgba(1.0, 1.0, 1.0, 0.5);
-    let color_selected = Color::rgba(1.0, 1.0, 1.0, 1.0);
-    let color_empty = Color::rgba(1.0, 0.8, 0.8, 0.5);
-
-    // Hut
-    //let hut_mesh: Handle<Mesh> = asset_server.get_handle("models/hut.gltf#Mesh0/Primitive0");
-    let hut_mesh: Handle<Mesh> = asset_server.load("models/hut.gltf#Mesh0/Primitive0");
-    commands.insert_resource(hut_mesh.clone());
-    let hut_material = materials.add(StandardMaterial {
-        // TODO - from file?
-        base_color: Color::rgb(0.8, 0.7, 0.6),
-        ..Default::default()
-    });
-    let hut_frame_texture: Handle<Texture> = asset_server.load("textures/frame_hut.png");
-    let hut_frame_material = materials2d.add(ColorMaterial {
-        color: color_unselected,
-        texture: Some(hut_frame_texture.clone()),
-    });
-    let hut_frame_material_selected = materials2d.add(ColorMaterial {
-        color: color_selected,
-        texture: Some(hut_frame_texture.clone()),
-    });
-    let hut_frame_material_empty = materials2d.add(ColorMaterial {
-        color: color_empty,
-        texture: Some(hut_frame_texture),
-    });
-
-    // Chieftain Hut
-    //let chieftain_hut_mesh: Handle<Mesh> = asset_server.get_handle("models/chieftain_hut.gltf#Mesh0/Primitive0");
-    let chieftain_hut_mesh: Handle<Mesh> =
-        asset_server.load("models/chieftain_hut.gltf#Mesh0/Primitive0");
-    commands.insert_resource(chieftain_hut_mesh.clone());
-    let chieftain_hut_material = materials.add(StandardMaterial {
-        // TODO - from file?
-        base_color: Color::rgb(0.6, 0.7, 0.8),
-        ..Default::default()
-    });
-    let chieftain_hut_frame_texture: Handle<Texture> =
-        asset_server.load("textures/frame_chieftain_hut.png");
-    let chieftain_hut_frame_material = materials2d.add(ColorMaterial {
-        color: color_unselected,
-        texture: Some(chieftain_hut_frame_texture.clone()),
-    });
-    let chieftain_hut_frame_material_selected = materials2d.add(ColorMaterial {
-        color: color_selected,
-        texture: Some(chieftain_hut_frame_texture.clone()),
-    });
-    let chieftain_hut_frame_material_empty = materials2d.add(ColorMaterial {
-        color: color_empty,
-        texture: Some(chieftain_hut_frame_texture),
-    });
-
-    // Level 1
-    game_data.add_level(Level {
-        name: "Hut".to_string(),
-        grid_size: IVec2::new(3, 3),
-        balance_factor: 1.0,
-        victory_margin: 0.001, // only 1 exact solution
-        inventory: Inventory {
-            items: vec![(
-                Buildable {
-                    name: "Hut".to_string(),
-                    weight: 1.0,
-                    mesh: hut_mesh.clone(),
-                    material: hut_material.clone(),
-                    frame_material: hut_frame_material.clone(),
-                    frame_material_selected: hut_frame_material_selected.clone(),
-                    frame_material_empty: hut_frame_material_empty.clone(),
-                },
-                1,
-            )],
-        },
-    });
-
-    // Level 2
-    game_data.add_level(Level {
-        name: "Neighborhood".to_string(),
-        grid_size: IVec2::new(5, 5),
-        balance_factor: 0.5,
-        victory_margin: 0.1, // TODO
-        inventory: Inventory {
-            items: vec![(
-                Buildable {
-                    name: "Hut".to_string(),
-                    weight: 1.0,
-                    mesh: hut_mesh.clone(),
-                    material: hut_material.clone(),
-                    frame_material: hut_frame_material.clone(),
-                    frame_material_selected: hut_frame_material_selected.clone(),
-                    frame_material_empty: hut_frame_material_empty.clone(),
-                },
-                4,
-            )],
-        },
-    });
-
-    // Level 3
-    game_data.add_level(Level {
-        name: "Village".to_string(),
-        grid_size: IVec2::new(5, 5),
-        balance_factor: 0.5,
-        victory_margin: 0.1, // TODO
-        inventory: Inventory {
-            items: vec![
-                (
-                    Buildable {
-                        name: "Hut".to_string(),
-                        weight: 1.0,
-                        mesh: hut_mesh.clone(),
-                        material: hut_material.clone(),
-                        frame_material: hut_frame_material.clone(),
-                        frame_material_selected: hut_frame_material_selected.clone(),
-                        frame_material_empty: hut_frame_material_empty.clone(),
-                    },
-                    2,
-                ),
-                (
-                    Buildable {
-                        name: "Chieftain Hut".to_string(),
-                        weight: 2.0,
-                        mesh: chieftain_hut_mesh.clone(),
-                        material: chieftain_hut_material.clone(),
-                        frame_material: chieftain_hut_frame_material.clone(),
-                        frame_material_selected: chieftain_hut_frame_material_selected.clone(),
-                        frame_material_empty: chieftain_hut_frame_material_empty.clone(),
-                    },
-                    1,
-                ),
-            ],
-        },
-    });
-
-    // Level 3
-    game_data.add_level(Level {
-        name: "Village 2".to_string(),
-        grid_size: IVec2::new(5, 5),
-        balance_factor: 0.5,
-        victory_margin: 0.1, // TODO
-        inventory: Inventory {
-            items: vec![
-                (
-                    Buildable {
-                        name: "Hut".to_string(),
-                        weight: 1.0,
-                        mesh: hut_mesh.clone(),
-                        material: hut_material.clone(),
-                        frame_material: hut_frame_material.clone(),
-                        frame_material_selected: hut_frame_material_selected.clone(),
-                        frame_material_empty: hut_frame_material_empty.clone(),
-                    },
-                    2,
-                ),
-                (
-                    Buildable {
-                        name: "Chieftain Hut".to_string(),
-                        weight: 2.0,
-                        mesh: chieftain_hut_mesh.clone(),
-                        material: chieftain_hut_material.clone(),
-                        frame_material: chieftain_hut_frame_material.clone(),
-                        frame_material_selected: chieftain_hut_frame_material_selected.clone(),
-                        frame_material_empty: chieftain_hut_frame_material_empty.clone(),
-                    },
-                    3,
-                ),
-            ],
-        },
-    });
-
-    // Create frame material for UI
-    let frame_texture = asset_server.load("textures/frame.png");
-    let frame_material = materials2d.add(ColorMaterial {
-        color: Color::rgb(1.0, 1.0, 1.0),
-        texture: Some(frame_texture),
-    });
-    game_data.set_frame_material(frame_material);
-
-    // Load first level by default (this allows skipping the main menu while developping)
-    game_data.set_level(0);
+fn setup_ui_resources(asset_server: Res<AssetServer>, mut ui_resouces: ResMut<UiResources>) {
+    trace!("setup_ui_resources");
+    let title_font: Handle<Font> = asset_server.load("fonts/pacifico/Pacifico-Regular.ttf");
+    let text_font: Handle<Font> =
+        asset_server.load("fonts/mochiy_pop_one/MochiyPopOne-Regular.ttf");
+    *ui_resouces = UiResources {
+        title_font,
+        text_font,
+    };
 }
 
-struct RegenerateInventoryUiEvent;
-
-struct InventorySlot {
-    index: u32,
-    count: u32,
-    text: Entity,
+struct UiResources {
+    title_font: Handle<Font>,
+    text_font: Handle<Font>,
 }
 
-impl InventorySlot {
-    pub fn new(index: u32, count: u32, text: Entity) -> InventorySlot {
-        InventorySlot { index, count, text }
-    }
-}
-
-fn regenerate_inventory_ui(
-    mut commands: Commands,
-    mut ev_regen_ui: EventReader<RegenerateInventoryUiEvent>,
-    mut game_data: ResMut<GameData>,
-    mut materials2d: ResMut<Assets<ColorMaterial>>,
-    asset_server: Res<AssetServer>,
-) {
-    for ev in ev_regen_ui.iter() {
-        println!("regenerate_inventory_ui() -- GOT EVENT!");
-        if let Some(root) = game_data.inventory_ui_root_node {
-            commands.entity(root).despawn_recursive();
+impl UiResources {
+    pub fn new() -> Self {
+        UiResources {
+            title_font: Default::default(),
+            text_font: Default::default(),
         }
-        game_data.inventory_ui_root_node = Some(
-            commands
-                .spawn_bundle(NodeBundle {
-                    style: Style {
-                        size: Size::new(Val::Percent(100.0), Val::Percent(100.0)),
-                        justify_content: JustifyContent::FlexEnd,
-                        ..Default::default()
-                    },
-                    material: materials2d.add(Color::NONE.into()),
-                    ..Default::default()
-                })
-                .with_children(|parent| {
-                    let mut xpos = 100.0 + 200.0 * (game_data.inventory.items.len() - 1) as f32;
-                    let mut index = 0;
-                    let font: Handle<Font> =
-                        asset_server.load("fonts/montserrat/Montserrat-Regular.ttf"); // TODO -- save somewhere
-                    for (buildable, count) in game_data.inventory.items.iter() {
-                        // Item slot with frame and item image
-                        let mut frame = parent.spawn_bundle(NodeBundle {
-                            style: Style {
-                                size: Size::new(Val::Px(128.0), Val::Px(128.0)),
-                                position_type: PositionType::Absolute,
-                                position: Rect {
-                                    bottom: Val::Px(100.0),
-                                    right: Val::Px(xpos),
-                                    ..Default::default()
-                                },
+    }
 
-                                // I expect one of these to center the text in the node
-                                align_content: AlignContent::Center,
-                                align_items: AlignItems::Center,
-                                align_self: AlignSelf::Center,
+    pub fn title_font(&self) -> Handle<Font> {
+        self.title_font.clone()
+    }
 
-                                // this line aligns the content
-                                justify_content: JustifyContent::Center,
-                                ..Default::default()
-                            },
-                            material: buildable.get_material(*count, index == 0),
-                            ..Default::default()
-                        });
-                        let text = frame
-                            .with_children(|parent| {
-                                // Item count in slot
-                                parent.spawn_bundle(TextBundle {
-                                    text: Text::with_section(
-                                        format!("{}", *count).to_string(),
-                                        TextStyle {
-                                            font: font.clone(),
-                                            font_size: 90.0,
-                                            color: Color::rgb_u8(111, 188, 165),
-                                        },
-                                        Default::default(), // TextAlignment
-                                    ),
-                                    ..Default::default()
-                                });
-                            })
-                            .id();
-                        frame.insert(InventorySlot::new(index, *count, text));
-                        xpos -= 200.0;
-                        index += 1;
-                    }
-                })
-                .id(),
-        );
+    pub fn text_font(&self) -> Handle<Font> {
+        self.text_font.clone()
     }
 }
 
-struct UpdateInventorySlots;
-
-fn inventory_ui_system(
+fn inputs_system(
     keyboard_input: ResMut<Input<KeyCode>>,
-    mut game_data: ResMut<GameData>,
-    mut query: Query<(&mut InventorySlot, &mut Handle<ColorMaterial>, &Children)>,
-    mut text_query: Query<&mut Text>,
-    mut ev: EventReader<UpdateInventorySlots>,
-    mut cursor_query: Query<(&mut Cursor,)>,
+    mut ev_select_slot: EventWriter<SelectSlotEvent>,
 ) {
-    // Change selected buildable from inventory
-    let mut changed = false;
+    // Change selected slot
     if keyboard_input.just_pressed(KeyCode::Q) {
-        if let Some(buildable) = game_data.select_prev() {
-            changed = true;
-            if let Ok((mut cursor,)) = cursor_query.single_mut() {
-                cursor.weight = buildable.weight;
-            }
-        }
+        ev_select_slot.send(SelectSlotEvent(SelectSlot::Prev));
     }
     if keyboard_input.just_pressed(KeyCode::E) || keyboard_input.just_pressed(KeyCode::Tab) {
-        if let Some(buildable) = game_data.select_next() {
-            changed = true;
-            if let Ok((mut cursor,)) = cursor_query.single_mut() {
-                cursor.weight = buildable.weight;
-            }
-        }
+        ev_select_slot.send(SelectSlotEvent(SelectSlot::Next));
     }
-
-    // Update all inventory slots
-    if changed || ev.iter().count() > 0 {
-        let selected_index = game_data.current_inventory_index;
-        println!("UpdateInventorySlots: sel={}", selected_index);
-        for (mut slot, mut material, children) in query.iter_mut() {
-            let mut text = text_query.get_mut(children[0]).unwrap();
-            let (buildable, count) = &game_data.inventory.items[slot.index as usize];
-            slot.count = *count;
-            text.sections[0].value = format!("{}", slot.count).to_string();
-            println!("-- slot: idx={} cnt={}", slot.index, slot.count);
-            *material = buildable.get_material(slot.count, slot.index == selected_index as u32);
-        }
+    if keyboard_input.just_pressed(KeyCode::Key1) {
+        ev_select_slot.send(SelectSlotEvent(SelectSlot::Index(0)));
+    }
+    if keyboard_input.just_pressed(KeyCode::Key2) {
+        ev_select_slot.send(SelectSlotEvent(SelectSlot::Index(1)));
+    }
+    if keyboard_input.just_pressed(KeyCode::Key3) {
+        ev_select_slot.send(SelectSlotEvent(SelectSlot::Index(2)));
+    }
+    if keyboard_input.just_pressed(KeyCode::Key4) {
+        ev_select_slot.send(SelectSlotEvent(SelectSlot::Index(3)));
+    }
+    if keyboard_input.just_pressed(KeyCode::Key5) {
+        ev_select_slot.send(SelectSlotEvent(SelectSlot::Index(4)));
     }
 }
 
@@ -953,13 +548,20 @@ struct MenuData {
     entities: Vec<Entity>,
 }
 
+struct MainMenuLoadingStatusText;
+
 fn setup_main_menu(
     asset_server: Res<AssetServer>,
     mut commands: Commands,
     mut materials: ResMut<Assets<ColorMaterial>>,
     audio: Res<Audio>,
+    ui_resouces: Res<UiResources>,
 ) {
-    let font = asset_server.load("fonts/pacifico/Pacifico-Regular.ttf");
+    trace!("setup_main_menu");
+
+    let title_font = ui_resouces.title_font();
+    let text_font = ui_resouces.text_font();
+
     let text_align = TextAlignment {
         horizontal: HorizontalAlign::Center,
         vertical: VerticalAlign::Center,
@@ -1025,7 +627,7 @@ fn setup_main_menu(
                     text: Text::with_section(
                         "Libra City",
                         TextStyle {
-                            font: font.clone(),
+                            font: title_font.clone(),
                             font_size: 250.0,
                             color: Color::rgb_u8(111, 188, 165),
                         },
@@ -1060,44 +662,58 @@ fn setup_main_menu(
             //.insert(Parent(root_entity))
             .with_children(|parent| {
                 // Title itself
-                parent.spawn_bundle(TextBundle {
-                    text: Text {
-                        // Construct a `Vec` of `TextSection`s
-                        sections: vec![
-                            TextSection {
-                                value: "Press RETURN to start".to_string(),
-                                style: TextStyle {
-                                    font: asset_server
-                                        .load("fonts/montserrat/Montserrat-Regular.ttf"),
-                                    font_size: 40.0,
-                                    color: Color::WHITE,
+                parent
+                    .spawn_bundle(TextBundle {
+                        text: Text {
+                            // Construct a `Vec` of `TextSection`s
+                            sections: vec![
+                                TextSection {
+                                    value: "Loading...".to_string(),
+                                    style: TextStyle {
+                                        font: text_font.clone(),
+                                        font_size: 40.0,
+                                        color: Color::WHITE,
+                                    },
                                 },
-                            },
-                            TextSection {
-                                value: "\nThis game plays with a keyboard only".to_string(),
-                                style: TextStyle {
-                                    font: asset_server
-                                        .load("fonts/montserrat/Montserrat-Regular.ttf"),
-                                    font_size: 20.0,
-                                    color: Color::GRAY,
+                                TextSection {
+                                    value: "\nThis game plays with a keyboard only".to_string(),
+                                    style: TextStyle {
+                                        font: text_font.clone(),
+                                        font_size: 20.0,
+                                        color: Color::GRAY,
+                                    },
                                 },
+                            ],
+                            alignment: TextAlignment {
+                                vertical: VerticalAlign::Center,
+                                horizontal: HorizontalAlign::Center,
                             },
-                        ],
-                        alignment: TextAlignment {
-                            vertical: VerticalAlign::Center,
-                            horizontal: HorizontalAlign::Center,
                         },
-                    },
-                    ..Default::default()
-                });
+                        ..Default::default()
+                    })
+                    .insert(MainMenuLoadingStatusText);
             })
             .id(),
     );
 
     commands.insert_resource(menu_data);
+}
 
-    // let music = asset_server.load("audio/ambient1.mp3");
-    // audio.play(music);
+fn loading_ui(
+    mut ev_config_loaded: EventReader<ConfigLoadedEvent>,
+    mut state: ResMut<State<AppState>>,
+    mut query: Query<&mut Text, With<MainMenuLoadingStatusText>>,
+) {
+    if ev_config_loaded.iter().last().is_some() {
+        // Show "Press to start"
+        if let Ok(mut text) = query.single_mut() {
+            text.sections[0].value = "Press [ENTER] to start".to_owned();
+        }
+
+        // Change app state
+        assert!(*state.current() == AppState::MainMenuLoading);
+        state.set(AppState::MainMenu).unwrap();
+    }
 }
 
 fn handle_ui_buttons(
@@ -1197,34 +813,34 @@ struct CheckLevelResultEvent();
 fn cursor_movement_system(
     mut ev_check_level: EventWriter<CheckLevelResultEvent>,
     mut ev_update_slots: EventWriter<UpdateInventorySlots>,
-    time: Res<Time>,
-    mut game_data: ResMut<GameData>,
+    //time: Res<Time>,
     mut grid: ResMut<Grid>,
     mut commands: Commands,
+    level: Res<Level>,
+    levels: Res<Levels>,
     keyboard_input: Res<Input<KeyCode>>,
+    buildables: Res<Buildables>,
+    mut inventory: ResMut<Inventory>,
     mut query: Query<(&mut Cursor, &mut Transform, &mut Visible)>,
 ) {
     if let Ok((mut cursor, mut transform, mut visible)) = query.single_mut() {
         // Move cursor around the grid
-        let mut moved = false;
+        let mut pos = cursor.pos;
         if keyboard_input.just_pressed(KeyCode::Left) || keyboard_input.just_pressed(KeyCode::A) {
-            cursor.pos.x -= 1;
-            moved = true;
+            pos.x -= 1;
         }
         if keyboard_input.just_pressed(KeyCode::Right) || keyboard_input.just_pressed(KeyCode::D) {
-            cursor.pos.x += 1;
-            moved = true;
+            pos.x += 1;
         }
         if keyboard_input.just_pressed(KeyCode::Up) || keyboard_input.just_pressed(KeyCode::W) {
-            cursor.pos.y += 1;
-            moved = true;
+            pos.y += 1;
         }
         if keyboard_input.just_pressed(KeyCode::Down) || keyboard_input.just_pressed(KeyCode::S) {
-            cursor.pos.y -= 1;
-            moved = true;
+            pos.y -= 1;
         }
-        if moved {
-            cursor.pos = grid.clamp(cursor.pos);
+        pos = grid.clamp(pos);
+        if cursor.pos != pos {
+            cursor.pos = pos;
             //let delta_pos = cursor.move_speed * time.delta_seconds();
             let fpos = grid.fpos(&cursor.pos);
             let translation = &mut transform.translation;
@@ -1233,44 +849,43 @@ fn cursor_movement_system(
 
         // Spawn buildable at cursor position
         if keyboard_input.just_pressed(KeyCode::Space) {
-            let slot_index = game_data.current_inventory_index as u32;
-            let can_spawn = grid.can_spawn_item(&cursor.pos);
-            if can_spawn {
-                if let Some(buildable) = game_data.inventory.pop_item(slot_index) {
-                    let fpos = grid.fpos(&cursor.pos);
-                    println!("Spawn buildable at pos={:?} fpos={:?}", cursor.pos, fpos);
-                    let cell_size = grid.cell_size();
-                    let entity = commands
-                        .spawn_bundle(PbrBundle {
-                            mesh: buildable.mesh.clone(),
-                            material: buildable.material.clone(),
-                            transform: Transform::from_translation(Vec3::new(fpos.x, 0.1, -fpos.y))
-                                * Transform::from_scale(Vec3::new(
-                                    cell_size.x,
-                                    cell_size.x,
-                                    cell_size.x,
-                                )), // TODO -- can we really handle non-uniform cell size?!
-                            ..Default::default()
-                        })
-                        .insert(Parent(cursor.spawn_root_entity))
-                        .id();
-                    grid.spawn_item(&cursor.pos, cursor.weight, entity);
-                    // Check if current slot has any item available left
-                    if game_data.inventory.item_count(slot_index) == 0 {
-                        // Try to select another slot with some item(s) left
-                        if let Some(index) = game_data.inventory.find_non_empty_slot() {
-                            game_data.current_inventory_index = index as i32;
-                            cursor.weight = game_data.selected_slot().weight;
-                            ev_update_slots.send(UpdateInventorySlots);
-                        } else {
-                            // No more of any item in any slot; hide cursor and check level result
-                            visible.is_visible = false;
-                            ev_update_slots.send(UpdateInventorySlots);
-                            ev_check_level.send(CheckLevelResultEvent {});
+            if grid.can_spawn_item(&cursor.pos) {
+                if let Some(slot) = inventory.selected_slot_mut() {
+                    if let Some(buildable_ref) = slot.pop_item() {
+                        if let Some(buildable) = buildables.get(&buildable_ref) {
+                            let fpos = grid.fpos(&cursor.pos);
+                            debug!("Spawn buildable at pos={:?} fpos={:?}", cursor.pos, fpos);
+                            let entity = commands
+                                .spawn_bundle(PbrBundle {
+                                    mesh: buildable.mesh().clone(),
+                                    material: buildable.material().clone(),
+                                    transform: Transform::from_translation(Vec3::new(
+                                        fpos.x, 0.1, -fpos.y,
+                                    )),
+                                    ..Default::default()
+                                })
+                                .insert(Parent(cursor.spawn_root_entity))
+                                .id();
+                            grid.spawn_item(&cursor.pos, buildable.weight(), entity);
+                            // Check if current slot has any item available left
+                            if slot.is_empty() {
+                                // Try to select another slot with some item(s) left
+                                if let Some(slot_index) = inventory.find_non_empty_slot_index() {
+                                    inventory.select_slot(&SelectSlot::Index(slot_index as usize));
+                                    let bref = inventory.selected_slot().unwrap().bref();
+                                    let buildable = buildables.get(bref).unwrap();
+                                    ev_update_slots.send(UpdateInventorySlots);
+                                } else {
+                                    // No more of any item in any slot; hide cursor and check level result
+                                    visible.is_visible = false;
+                                    ev_update_slots.send(UpdateInventorySlots);
+                                    ev_check_level.send(CheckLevelResultEvent {});
+                                }
+                            } else {
+                                // If current slot still has items, update anyway
+                                ev_update_slots.send(UpdateInventorySlots);
+                            }
                         }
-                    } else {
-                        // If current slot still has items, update anyway
-                        ev_update_slots.send(UpdateInventorySlots);
                     }
                 }
             }
@@ -1281,7 +896,14 @@ fn cursor_movement_system(
             // Clear grid
             grid.clear(Some(&mut commands));
             // Reset inventory
-            game_data.inventory = game_data.level().inventory.clone();
+            let level_index = level.index();
+            let level_desc = &levels.levels()[level_index];
+            inventory.set_slots(
+                level_desc
+                    .inventory()
+                    .iter()
+                    .map(|(bref, &count)| Slot::new(bref.clone(), count)),
+            );
             // Re-show cursor
             visible.is_visible = true;
             // Update inventory slots
@@ -1292,11 +914,14 @@ fn cursor_movement_system(
 
 fn plate_balance_system(
     grid: Res<Grid>,
-    game_data: Res<GameData>,
+    level: Res<Level>,
+    levels: Res<Levels>,
     mut query: Query<(&Plate, &mut Transform)>,
 ) {
     if let Ok((plate, mut transform)) = query.single_mut() {
-        let rot = grid.calc_rot(game_data.level().balance_factor);
+        let level_index = level.index();
+        let level = &levels.levels()[level_index];
+        let rot = grid.calc_rot(level.balance_factor());
         transform.rotation = rot;
     }
 }
@@ -1327,21 +952,24 @@ fn create_grid_tex() -> Texture {
     )
 }
 
-struct LevelNameText; // marker
-
 /// set up a simple 3D scene
 fn setup3d(
-    mut game_data: ResMut<GameData>,
+    mut entity_manager: ResMut<EntityManager>,
     asset_server: Res<AssetServer>,
+    level: Res<Level>,
+    levels: Res<Levels>,
     mut commands: Commands,
     mut grid: ResMut<Grid>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut textures: ResMut<Assets<Texture>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut ev_regen_ui: EventWriter<RegenerateInventoryUiEvent>,
+    mut ev_load_level: EventWriter<LoadLevelEvent>,
 ) {
+    let level_index = level.index();
+    let level = &levels.levels()[level_index];
+
     // Setup grid
-    grid.set_size(&game_data.level().grid_size);
+    grid.set_size(level.grid_size());
 
     // Create grid material
     let grid_texture = textures.add(create_grid_tex());
@@ -1374,29 +1002,26 @@ fn setup3d(
     // Plate
     let mut plate_cmds = commands.spawn();
     let plate = plate_cmds.id();
-    //game_data.all_entities.push(plate);
+    //entity_manager.all_entities.push(plate);
     plate_cmds
         .insert(Transform::identity())
         .insert(GlobalTransform::identity())
         .insert(Plate::new(plate));
 
     // Grid blocks
-    let cell_size = grid.cell_size();
-    let cell_mesh = meshes.add(Mesh::from(shape::Box::new(cell_size.x, 0.1, cell_size.y))); // THIS IS WHY WE SHOULDN'T SCALE THE GRID BUT ONLY EXTEND IT, CAN'T REUSE THIS WHEN CELL SIZE CHANGES
+    let cell_mesh = meshes.add(Mesh::from(shape::Box::new(1.0, 0.1, 1.0)));
     grid.regenerate(&mut commands, cell_mesh.clone(), plate);
 
     // Cursor
-    let cursor_mesh = meshes.add(Mesh::from(shape::Cube {
-        size: cell_size.x * 0.9,
-    })); // TODO xy
+    let cursor_mesh = meshes.add(Mesh::from(shape::Cube { size: 0.9 }));
     let cursor_mat = materials.add(Color::rgb(0.6, 0.7, 0.8).into());
     let cursor_fpos = grid.fpos(&IVec2::ZERO);
-    println!("Spawn cursor at fpos={:?}", cursor_fpos);
+    debug!("Spawn cursor at fpos={:?}", cursor_fpos);
     let mut cursor_entity_cmds = commands.spawn_bundle(PbrBundle {
         mesh: cursor_mesh.clone(),
         material: cursor_mat.clone(),
         transform: Transform::from_translation(Vec3::new(cursor_fpos.x, 0.1, -cursor_fpos.y))
-            * Transform::from_scale(Vec3::new(cell_size.x * 3.0, cell_size.x, cell_size.x * 3.0)), // TODO - xy?
+            * Transform::from_scale(Vec3::new(1.0, 0.3, 1.0)),
         ..Default::default()
     });
     cursor_entity_cmds.insert(Parent(plate));
@@ -1411,9 +1036,9 @@ fn setup3d(
     });
 
     // Camera
-    //game_data.all_entities.push(
+    //entity_manager.all_entities.push(
     commands.spawn_bundle(PerspectiveCameraBundle {
-        transform: Transform::from_xyz(-0.7, 1.0, 2.0).looking_at(Vec3::ZERO, Vec3::Y),
+        transform: Transform::from_xyz(-3.0, 3.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
         // perspective_projection: PerspectiveProjection {
         //     fov: 60.0,
         //     aspect_ratio: 1.0,
@@ -1440,7 +1065,7 @@ fn setup3d(
                 ..Default::default()
             },
             text: Text::with_section(
-                game_data.level().name.clone(),
+                level.name().to_owned(),
                 TextStyle {
                     font: asset_server.load("fonts/pacifico/Pacifico-Regular.ttf"),
                     font_size: 100.0,
@@ -1455,41 +1080,40 @@ fn setup3d(
         })
         .insert(LevelNameText) // marker to allow finding this text to change it
         .id();
-    game_data.all_entities.push(title);
+    entity_manager.all_entities.push(title);
 
-    // Regenerate the inventory UI before starting to play
-    ev_regen_ui.send(RegenerateInventoryUiEvent {});
+    // Load first level by default (this allows skipping the main menu while developping)
+    ev_load_level.send(LoadLevelEvent(LoadLevel::ByIndex(0)));
 }
 
 fn cleanup3d(
-    mut query: Query<(&mut Visible,)>,
-    mut game_data: ResMut<GameData>,
+    //mut query: Query<(&mut Visible,)>,
+    mut entity_manager: ResMut<EntityManager>,
     mut commands: Commands,
     // mut query: Query<(&mut Transform,)>,
+    mut inventory: ResMut<Inventory>,
 ) {
     // LAZY HACK -- Hide literally EVERYTHING since we didn't keep track of things we need to hide/despawn
     // for (mut vis,) in query.iter_mut() {
     //     vis.is_visible = false;
     // }
 
-    println!("Entities: {}", game_data.all_entities.len());
-    if let Some(ent) = game_data.inventory_ui_root_node {
-        game_data.all_entities.push(ent);
-    }
-    for ent in game_data.all_entities.iter() {
-        println!("Entity: {:?}", *ent);
+    trace!("Entities: {}", entity_manager.all_entities.len());
+    for ent in entity_manager.all_entities.iter() {
+        trace!("Entity: {:?}", *ent);
         commands.entity(*ent).despawn_recursive();
     }
-    game_data.all_entities.clear();
+    entity_manager.all_entities.clear();
+
+    inventory.clear_entities(&mut commands);
 }
 
 fn spawn_end_screen(
     asset_server: Res<AssetServer>,
+    ui_resouces: Res<UiResources>,
     mut commands: Commands,
     mut materials2d: ResMut<Assets<ColorMaterial>>,
 ) {
-    let font: Handle<Font> = asset_server.load("fonts/pacifico/Pacifico-Regular.ttf"); // TODO -- save somewhere
-
     commands.spawn_bundle(UiCameraBundle::default());
 
     commands
@@ -1532,7 +1156,7 @@ fn spawn_end_screen(
                         text: Text::with_section(
                             "The End",
                             TextStyle {
-                                font: font.clone(),
+                                font: ui_resouces.title_font(),
                                 font_size: 250.0,
                                 color: Color::rgb_u8(111, 188, 165),
                             },
@@ -1573,9 +1197,9 @@ fn spawn_end_screen(
                     // Press ESC
                     parent.spawn_bundle(TextBundle {
                         text: Text::with_section(
-                            "Press ESCAPE to quit",
+                            "Press [ESC] to quit",
                             TextStyle {
-                                font: asset_server.load("fonts/montserrat/Montserrat-Regular.ttf"), // TODO -- save somewhere
+                                font: ui_resouces.text_font(),
                                 font_size: 48.0,
                                 color: Color::rgb_u8(192, 192, 192),
                             },

@@ -1,0 +1,68 @@
+{
+    "inventory": {
+        "hut": {
+            "name": "Hut",
+            "model": "hut.gltf#Mesh0/Primitive0",
+            "frame": "frame_hut.png",
+            "weight": 1.0
+        },
+        "chieftain_hut": {
+            "name": "Chieftain Hut",
+            "model": "chieftain_hut.gltf#Mesh0/Primitive0",
+            "frame": "frame_chieftain_hut.png",
+            "weight": 2.0
+        }
+    },
+    "levels": [
+        {
+            "name": "Hut",
+            "grid_size": [
+                3,
+                3
+            ],
+            "balance_factor": 0.1,
+            "victory_margin": 0.001,
+            "inventory": {
+                "hut": 1
+            }
+        },
+        {
+            "name": "Neighborhood",
+            "grid_size": [
+                5,
+                5
+            ],
+            "balance_factor": 0.05,
+            "victory_margin": 0.1,
+            "inventory": {
+                "hut": 4
+            }
+        },
+        {
+            "name": "Village",
+            "grid_size": [
+                5,
+                5
+            ],
+            "balance_factor": 0.05,
+            "victory_margin": 0.1,
+            "inventory": {
+                "hut": 2,
+                "chieftain_hut": 1
+            }
+        },
+        {
+            "name": "Village 2",
+            "grid_size": [
+                5,
+                5
+            ],
+            "balance_factor": 0.05,
+            "victory_margin": 0.1,
+            "inventory": {
+                "hut": 2,
+                "chieftain_hut": 3
+            }
+        }
+    ]
+}
