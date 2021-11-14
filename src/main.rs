@@ -1,5 +1,4 @@
 #![allow(dead_code, unused_imports, unused_variables)]
-#![feature(hash_drain_filter)]
 
 use bevy::{
     app::AppExit,
