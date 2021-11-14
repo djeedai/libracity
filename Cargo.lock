@@ -2045,11 +2045,14 @@ checksum = "c7d73b3f436185384286bd8098d17ec07c9a7d2388a6599f824d8502b529702a"
 name = "libracity"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "bevy",
  "bevy-inspector-egui",
  "bevy_kira_audio",
  "bevy_webgl2",
  "console_error_panic_hook",
+ "serde",
+ "serde_json",
  "wasm-bindgen",
 ]
 
