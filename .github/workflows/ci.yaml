@@ -21,6 +21,8 @@ jobs:
       - uses: actions/cache@v2
         with:
           path: |
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
             ~/.cargo/bin/
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
@@ -51,6 +53,8 @@ jobs:
       - uses: actions/cache@v2
         with:
           path: |
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
             ~/.cargo/bin/
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
