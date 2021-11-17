@@ -77,7 +77,7 @@ jobs:
           CARGO_INCREMENTAL: 0
       - name: Verify build
         run: |
-          ls -la
+          ls -la target/wasm32-unknown-unknown/debug/
           [ -f target/wasm32-unknown-unknown/debug/libracity.wasm ] || (echo "Missing libracity.wasm" && exit 1)
           s=`stat --printf='%s' target/wasm32-unknown-unknown/debug/libracity.wasm`
           (($s > 200000000)) && echo "Size: $s bytes" || (echo "Size too small: $s bytes" && exit 2)
