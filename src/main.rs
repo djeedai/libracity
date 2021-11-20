@@ -23,28 +23,32 @@ use std::{collections::HashMap, f32::consts::*, fs::File, io::Read};
 #[cfg(debug_assertions)]
 use bevy_inspector_egui::WorldInspectorPlugin;
 
+mod boot;
 mod error;
 mod inventory;
 mod level;
+mod loader;
 mod serialize;
 mod text_asset;
 
 use crate::{
+    boot::{BootPlugin, UiResources},
     error::Error,
     inventory::{
         Buildable, Inventory, InventoryPlugin, RegenerateInventoryUiEvent, SelectSlot,
         SelectSlotEvent, Slot, SlotState, UpdateInventorySlots,
     },
     level::{Level, LevelNameText, LevelPlugin, LoadLevel, LoadLevelEvent},
+    loader::{Loader, LoaderPlugin},
     serialize::{Buildables, ConfigLoadedEvent, Levels, SerializePlugin},
     text_asset::{TextAsset, TextAssetPlugin},
 };
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
-enum AppState {
-    /// Main menu, while still loading.
-    MainMenuLoading,
-    /// Main menu at startup.
+pub enum AppState {
+    /// Boot sequence (critical assets loading).
+    Boot,
+    /// Main menu.
     MainMenu,
     /// Playing a game level.
     InGame,
@@ -372,24 +376,24 @@ fn main() {
         // Resources
         .insert_resource(Grid::new())
         .insert_resource(EntityManager::new())
-        .insert_resource(UiResources::new())
         // Asset loading
         .add_plugin(TextAssetPlugin)
         .add_plugin(SerializePlugin)
-        .add_startup_system(setup_ui_resources.system())
+        .add_plugin(LoaderPlugin)
         // Level loading
         .add_plugin(LevelPlugin)
         // Inventory management
         .add_plugin(InventoryPlugin)
+        // == Boot state ==
+        .add_plugin(BootPlugin)
         // == MainMenu state ==
         .add_system_set(
-            SystemSet::on_enter(AppState::MainMenuLoading).with_system(setup_main_menu.system()),
+            SystemSet::on_enter(AppState::MainMenu).with_system(setup_main_menu.system()),
         )
         .add_system_set(
-            SystemSet::on_update(AppState::MainMenuLoading).with_system(loading_ui.system()),
-        )
-        .add_system_set(
-            SystemSet::on_update(AppState::MainMenu).with_system(handle_ui_buttons.system()),
+            SystemSet::on_update(AppState::MainMenu)
+                .with_system(loading_ui.system())
+                .with_system(handle_ui_buttons.system()),
         )
         .add_system_set(
             SystemSet::on_exit(AppState::MainMenu).with_system(close_main_menu.system()),
@@ -447,7 +451,7 @@ fn main() {
             SystemSet::on_enter(AppState::TheEnd).with_system(spawn_end_screen.system()),
         )
         // Initial state
-        .add_state(AppState::MainMenuLoading)
+        .add_state(AppState::Boot)
         //.add_state(AppState::MainMenu)
         //.add_state(AppState::InGame)
         //.add_state(AppState::TheEnd)
@@ -479,39 +483,6 @@ fn check_victory_condition(
 
 fn start_background_audio(asset_server: Res<AssetServer>, audio: Res<Audio>) {
     audio.play_looped(asset_server.load("audio/ambient1.ogg"));
-}
-
-fn setup_ui_resources(asset_server: Res<AssetServer>, mut ui_resouces: ResMut<UiResources>) {
-    trace!("setup_ui_resources");
-    let title_font: Handle<Font> = asset_server.load("fonts/pacifico/Pacifico-Regular.ttf");
-    let text_font: Handle<Font> =
-        asset_server.load("fonts/mochiy_pop_one/MochiyPopOne-Regular.ttf");
-    *ui_resouces = UiResources {
-        title_font,
-        text_font,
-    };
-}
-
-struct UiResources {
-    title_font: Handle<Font>,
-    text_font: Handle<Font>,
-}
-
-impl UiResources {
-    pub fn new() -> Self {
-        UiResources {
-            title_font: Default::default(),
-            text_font: Default::default(),
-        }
-    }
-
-    pub fn title_font(&self) -> Handle<Font> {
-        self.title_font.clone()
-    }
-
-    pub fn text_font(&self) -> Handle<Font> {
-        self.text_font.clone()
-    }
 }
 
 fn inputs_system(
@@ -700,18 +671,14 @@ fn setup_main_menu(
 
 fn loading_ui(
     mut ev_config_loaded: EventReader<ConfigLoadedEvent>,
-    mut state: ResMut<State<AppState>>,
     mut query: Query<&mut Text, With<MainMenuLoadingStatusText>>,
 ) {
+    // Once the levels config finished loading...
     if ev_config_loaded.iter().last().is_some() {
-        // Show "Press to start"
+        // ...show "Press to start"
         if let Ok(mut text) = query.single_mut() {
             text.sections[0].value = "Press [ENTER] to start".to_owned();
         }
-
-        // Change app state
-        assert!(*state.current() == AppState::MainMenuLoading);
-        state.set(AppState::MainMenu).unwrap();
     }
 }
 
