@@ -21,7 +21,7 @@ use serde::Deserialize;
 use std::{collections::HashMap, f32::consts::*, fs::File, io::Read};
 
 #[cfg(debug_assertions)]
-use bevy_inspector_egui::WorldInspectorPlugin;
+use bevy_inspector_egui::{WorldInspectorParams, WorldInspectorPlugin};
 
 mod boot;
 mod error;
@@ -321,6 +321,16 @@ impl Grid {
     }
 }
 
+#[cfg(debug_assertions)]
+fn inspector_toggle(
+    keyboard_input: ResMut<Input<KeyCode>>,
+    mut inspector: ResMut<WorldInspectorParams>,
+) {
+    if keyboard_input.just_pressed(KeyCode::F1) {
+        inspector.enabled = !inspector.enabled;
+    }
+}
+
 static DEBUG: &str = "debug";
 
 fn main() {
@@ -376,7 +386,8 @@ fn main() {
 
     // In Debug build only, add egui inspector to help
     #[cfg(debug_assertions)]
-    app.add_plugin(WorldInspectorPlugin::new());
+    app.add_plugin(WorldInspectorPlugin::new())
+        .add_system(inspector_toggle.system());
 
     app
         // Audio (Kira)
