@@ -28,6 +28,7 @@ mod error;
 mod inventory;
 mod level;
 mod loader;
+mod mainmenu;
 mod serialize;
 mod text_asset;
 
@@ -40,6 +41,7 @@ use crate::{
     },
     level::{Level, LevelNameText, LevelPlugin, LoadLevel, LoadLevelEvent},
     loader::{Loader, LoaderPlugin},
+    mainmenu::MainMenuPlugin,
     serialize::{Buildables, ConfigLoadedEvent, Levels, SerializePlugin},
     text_asset::{TextAsset, TextAssetPlugin},
 };
@@ -298,7 +300,10 @@ impl Grid {
     }
 
     pub fn clear(&mut self, commands: Option<&mut Commands>) {
-        trace!("Grid::clear()");
+        trace!(
+            "Grid::clear({})",
+            if commands.is_some() { "commands" } else { "-" }
+        );
         self.content.clear();
         self.content
             .resize(self.size.x as usize * self.size.y as usize, 0.0);
@@ -327,29 +332,36 @@ fn main() {
 
     let mut app = App::build();
     app
-        // Logging
+        // Logging and diagnostics
         .insert_resource(bevy::log::LogSettings {
             level: bevy::log::Level::INFO,
             filter: "wgpu=error,bevy_render=info,libracity=trace".to_string(),
         })
         .add_plugin(diag)
-        // Window
+        //.add_plugin(FrameTimeDiagnosticsPlugin::default())
+        // Asset server configuration
         .insert_resource(AssetServerSettings {
             asset_folder: "assets".to_string(),
         })
+        // Main window
+        //.insert_resource(ClearColor(Color::rgb(0.9, 0.9, 0.9)))
         .insert_resource(WindowDescriptor {
             title: "Libra City".to_string(),
             vsync: true,
             ..Default::default()
-        })
-        // .insert_resource(ClearColor(Color::rgb(0.9, 0.9, 0.9)))
-        .insert_resource(Msaa { samples: 4 })
+        });
+
+    // Only enable MSAA on non-web platforms
+    #[cfg(not(target_arch = "wasm32"))]
+    app.insert_resource(Msaa { samples: 4 });
+
+    app
+        // Helper to exit with ESC key
         .add_system(bevy::input::system::exit_on_esc_system.system())
-        //.add_plugin(FrameTimeDiagnosticsPlugin::default())
-        // Plugins
+        // Default plugins
         .add_plugins(DefaultPlugins);
 
-    // Browsers don't support wgpu, use the WebGL2 rendering backend instead
+    // Browsers don't support wgpu, use the WebGL2 rendering backend instead.
     #[cfg(target_arch = "wasm32")]
     app.add_plugin(bevy_webgl2::WebGL2Plugin);
 
@@ -380,24 +392,14 @@ fn main() {
         .add_plugin(TextAssetPlugin)
         .add_plugin(SerializePlugin)
         .add_plugin(LoaderPlugin)
-        // Level loading
+        // Level management
         .add_plugin(LevelPlugin)
         // Inventory management
         .add_plugin(InventoryPlugin)
         // == Boot state ==
         .add_plugin(BootPlugin)
         // == MainMenu state ==
-        .add_system_set(
-            SystemSet::on_enter(AppState::MainMenu).with_system(setup_main_menu.system()),
-        )
-        .add_system_set(
-            SystemSet::on_update(AppState::MainMenu)
-                .with_system(loading_ui.system())
-                .with_system(handle_ui_buttons.system()),
-        )
-        .add_system_set(
-            SystemSet::on_exit(AppState::MainMenu).with_system(close_main_menu.system()),
-        )
+        .add_plugin(MainMenuPlugin)
         // == InGame state ==
         .add_system_set(
             SystemSet::on_enter(AppState::InGame).with_system(setup3d.system().label("setup3d")),
@@ -511,195 +513,6 @@ fn inputs_system(
     if keyboard_input.just_pressed(KeyCode::Key5) {
         ev_select_slot.send(SelectSlotEvent(SelectSlot::Index(4)));
     }
-}
-
-struct MenuData {
-    //root_entity: Entity,
-    entities: Vec<Entity>,
-}
-
-struct MainMenuLoadingStatusText;
-
-fn setup_main_menu(
-    asset_server: Res<AssetServer>,
-    mut commands: Commands,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-    audio: Res<Audio>,
-    ui_resouces: Res<UiResources>,
-) {
-    trace!("setup_main_menu");
-
-    let title_font = ui_resouces.title_font();
-    let text_font = ui_resouces.text_font();
-
-    let text_align = TextAlignment {
-        horizontal: HorizontalAlign::Center,
-        vertical: VerticalAlign::Center,
-    };
-
-    let mut menu_data = MenuData { entities: vec![] };
-
-    // // Root
-    // let root_entity = commands
-    //     .spawn_bundle(NodeBundle {
-    //         style: Style {
-    //             min_size: Size::new(Val::Px(800.0), Val::Px(600.0)),
-    //             position_type: PositionType::Absolute,
-    //             position: Rect {
-    //                 left: Val::Percent(10.0),
-    //                 right: Val::Percent(10.0),
-    //                 bottom: Val::Percent(10.0),
-    //                 top: Val::Percent(10.0),
-    //                 ..Default::default()
-    //             },
-    //             ..Default::default()
-    //         },
-    //         material: materials.add(Color::rgb(0.15, 0.5, 0.35).into()),
-    //         ..Default::default()
-    //     })
-    //     .id();
-
-    // UI camera
-    menu_data.entities.push(
-        commands
-            .spawn_bundle(UiCameraBundle::default())
-            //.insert(Parent(root_entity))
-            .id(),
-    );
-
-    // Title
-    // Using the NodeBundle from the hack of https://github.com/bevyengine/bevy/issues/676 as a background
-    menu_data.entities.push(
-        commands
-            .spawn_bundle(NodeBundle {
-                style: Style {
-                    min_size: Size::new(Val::Px(800.0), Val::Px(300.0)),
-                    position: Rect::all(Val::Px(0.0)),
-                    position_type: PositionType::Absolute,
-
-                    // I expect one of these to center the text in the node
-                    align_content: AlignContent::Center,
-                    align_items: AlignItems::Center,
-                    align_self: AlignSelf::Center,
-
-                    // this line aligns the content
-                    justify_content: JustifyContent::Center,
-
-                    ..Default::default()
-                },
-                material: materials.add(Color::rgb(0.15, 0.15, 0.15).into()),
-                ..Default::default()
-            })
-            //.insert(Parent(root_entity))
-            .with_children(|parent| {
-                // Title itself
-                parent.spawn_bundle(TextBundle {
-                    text: Text::with_section(
-                        "Libra City",
-                        TextStyle {
-                            font: title_font.clone(),
-                            font_size: 250.0,
-                            color: Color::rgb_u8(111, 188, 165),
-                        },
-                        text_align,
-                    ),
-                    ..Default::default()
-                });
-            })
-            .id(),
-    );
-    menu_data.entities.push(
-        commands
-            .spawn_bundle(NodeBundle {
-                style: Style {
-                    min_size: Size::new(Val::Px(800.0), Val::Px(300.0)),
-                    position: Rect {
-                        bottom: Val::Px(100.0),
-                        left: Val::Px(0.0),
-                        right: Val::Px(0.0),
-                        ..Default::default()
-                    },
-                    position_type: PositionType::Absolute,
-                    align_content: AlignContent::Center,
-                    align_items: AlignItems::Center,
-                    align_self: AlignSelf::Center,
-                    justify_content: JustifyContent::Center,
-                    ..Default::default()
-                },
-                material: materials.add(Color::rgb(0.15, 0.15, 0.15).into()),
-                ..Default::default()
-            })
-            //.insert(Parent(root_entity))
-            .with_children(|parent| {
-                // Title itself
-                parent
-                    .spawn_bundle(TextBundle {
-                        text: Text {
-                            // Construct a `Vec` of `TextSection`s
-                            sections: vec![
-                                TextSection {
-                                    value: "Loading...".to_string(),
-                                    style: TextStyle {
-                                        font: text_font.clone(),
-                                        font_size: 40.0,
-                                        color: Color::WHITE,
-                                    },
-                                },
-                                TextSection {
-                                    value: "\nThis game plays with a keyboard only".to_string(),
-                                    style: TextStyle {
-                                        font: text_font.clone(),
-                                        font_size: 20.0,
-                                        color: Color::GRAY,
-                                    },
-                                },
-                            ],
-                            alignment: TextAlignment {
-                                vertical: VerticalAlign::Center,
-                                horizontal: HorizontalAlign::Center,
-                            },
-                        },
-                        ..Default::default()
-                    })
-                    .insert(MainMenuLoadingStatusText);
-            })
-            .id(),
-    );
-
-    commands.insert_resource(menu_data);
-}
-
-fn loading_ui(
-    mut ev_config_loaded: EventReader<ConfigLoadedEvent>,
-    mut query: Query<&mut Text, With<MainMenuLoadingStatusText>>,
-) {
-    // Once the levels config finished loading...
-    if ev_config_loaded.iter().last().is_some() {
-        // ...show "Press to start"
-        if let Ok(mut text) = query.single_mut() {
-            text.sections[0].value = "Press [ENTER] to start".to_owned();
-        }
-    }
-}
-
-fn handle_ui_buttons(
-    mut keyboard_input: ResMut<Input<KeyCode>>,
-    mut state: ResMut<State<AppState>>,
-) {
-    if keyboard_input.just_pressed(KeyCode::Return) {
-        state.set(AppState::InGame).unwrap();
-        // BUGBUG -- https://bevy-cheatbook.github.io/programming/states.html
-        keyboard_input.reset(KeyCode::Return);
-    }
-}
-
-fn close_main_menu(mut commands: Commands, menu_data: Res<MenuData>) {
-    // BUGBUG - Didn't manage to root all UI entities to a single one to despawn a tree, always got errors or warnings,
-    //          so ended up with a flat list of entities to despawn here.
-    //commands.entity(menu_data.root_entity).despawn_recursive();
-    menu_data.entities.iter().for_each(|ent| {
-        commands.entity(*ent).despawn_recursive();
-    });
 }
 
 fn create_line_mesh() -> Mesh {
