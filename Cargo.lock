@@ -2051,6 +2051,7 @@ dependencies = [
  "bevy_kira_audio",
  "bevy_webgl2",
  "console_error_panic_hook",
+ "parking_lot",
  "serde",
  "serde_json",
  "wasm-bindgen",

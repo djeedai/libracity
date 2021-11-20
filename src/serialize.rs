@@ -2,7 +2,7 @@ use bevy::{app::AppExit, prelude::*};
 use serde::Deserialize;
 use std::{collections::HashMap, fs::File, io::Read};
 
-use crate::{inventory::Buildable, text_asset::TextAsset, Error};
+use crate::{inventory::Buildable, text_asset::TextAsset, AppState, Error};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BuildableRef(pub String);
@@ -208,6 +208,7 @@ fn load_config(
                 let color_unselected = Color::rgba(1.0, 1.0, 1.0, 0.5);
                 let color_selected = Color::rgba(1.0, 1.0, 1.0, 1.0);
                 let color_empty = Color::rgba(1.0, 0.8, 0.8, 0.5);
+
                 // Load referenced assets
                 let mut buildables = HashMap::new();
                 for (item_name, rules) in game_data_archive.inventory.iter() {
@@ -250,6 +251,7 @@ fn load_config(
                     );
                 }
                 *buildables_res = Buildables { buildables };
+
                 // Convert levels
                 let levels: Vec<_> = game_data_archive
                     .levels
@@ -287,6 +289,8 @@ impl Plugin for SerializePlugin {
             .insert_resource(ConfigLoadState::Unloaded)
             .insert_resource(Buildables::new())
             .add_event::<ConfigLoadedEvent>()
-            .add_system(load_config.system());
+            .add_system_set(
+                SystemSet::on_update(AppState::MainMenu).with_system(load_config.system()),
+            );
     }
 }
