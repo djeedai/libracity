@@ -6,6 +6,7 @@ use crate::{
     AppState, Cursor, RegenerateInventoryUiEvent, ResetPlateEvent, Grid,
 };
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LoadLevel {
     Next,
     ByName(String),
@@ -13,12 +14,15 @@ pub enum LoadLevel {
 }
 
 /// Event to load a level.
+#[derive(Debug)]
 pub struct LoadLevelEvent(pub LoadLevel);
 
 /// Marker for the Text component displaying the level name.
+#[derive(Debug)]
 pub struct LevelNameText;
 
 /// Resource representing the current level being played.
+#[derive(Debug)]
 pub struct Level {
     /// Index into [`Levels`].
     index: usize,

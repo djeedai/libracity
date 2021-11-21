@@ -26,6 +26,7 @@ impl From<&String> for BuildableRef {
 }
 
 /// Description of a single level.
+#[derive(Debug)]
 pub struct LevelDesc {
     /// Level display name.
     pub name: String,
@@ -40,6 +41,7 @@ pub struct LevelDesc {
 }
 
 /// Resource describing of all available levels and their rules.
+#[derive(Debug)]
 pub struct Levels {
     levels: Vec<LevelDesc>,
 }
@@ -59,6 +61,7 @@ impl Levels {
 }
 
 /// Resource describing of all buildable items and their characteristics.
+#[derive(Debug)]
 pub struct Buildables {
     buildables: HashMap<BuildableRef, Buildable>,
 }
@@ -80,7 +83,7 @@ impl Buildables {
 }
 
 /// Rules for a buildable serialized.
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct BuildableRulesArchive {
     /// Display name.
     pub name: String,
@@ -93,7 +96,7 @@ pub struct BuildableRulesArchive {
 }
 
 /// Description of a single level serialized.
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct LevelDescArchive {
     /// Level display name.
     pub name: String,
@@ -108,7 +111,7 @@ pub struct LevelDescArchive {
 }
 
 /// Game data serialized.
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct GameDataArchive {
     pub inventory: HashMap<String, BuildableRulesArchive>,
     pub levels: Vec<LevelDescArchive>,
@@ -139,6 +142,7 @@ impl GameDataArchive {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum ConfigLoadState {
     Unloaded,
     Pending(Handle<TextAsset>),

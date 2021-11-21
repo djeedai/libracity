@@ -114,6 +114,7 @@ fn plate_reset_system(
     }
 }
 
+#[derive(Debug)]
 pub struct Cursor {
     pos: IVec2,
     move_speed: f32,
@@ -147,6 +148,7 @@ impl Cursor {
     // }
 }
 
+#[derive(Debug)]
 pub struct Grid {
     size: IVec2,
     content: Vec<f32>,

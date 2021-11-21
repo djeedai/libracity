@@ -60,6 +60,7 @@ pub enum State {
 /// [`is_done`]: Loader::is_done
 /// [`take`]: Loader::take
 /// [`reset`]: Loader::reset
+#[derive(Debug)]
 pub struct Loader {
     /// Loader state.
     state: RwLock<State>,
