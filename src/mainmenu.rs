@@ -28,6 +28,7 @@ fn mainmenu_setup(
     // Start loading game assets
     let mut loader = Loader::new();
     loader.enqueue("levels.json");
+    loader.submit();
 
     let title_font = ui_resouces.title_font();
     let text_font = ui_resouces.text_font();

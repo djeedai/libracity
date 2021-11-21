@@ -31,6 +31,7 @@ fn boot_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     let mut loader = Loader::new();
     loader.enqueue("fonts/pacifico/Pacifico-Regular.ttf");
     loader.enqueue("fonts/mochiy_pop_one/MochiyPopOne-Regular.ttf");
+    loader.submit();
     commands.spawn().insert(Boot).insert(loader);
 }
 
