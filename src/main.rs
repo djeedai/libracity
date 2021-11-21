@@ -42,7 +42,7 @@ use crate::{
     level::{Level, LevelNameText, LevelPlugin, LoadLevel, LoadLevelEvent},
     loader::{Loader, LoaderPlugin},
     mainmenu::MainMenuPlugin,
-    serialize::{Buildables, ConfigLoadedEvent, Levels, SerializePlugin},
+    serialize::{Buildables, Levels, SerializePlugin},
     text_asset::{TextAsset, TextAssetPlugin},
 };
 
@@ -481,7 +481,7 @@ fn check_victory_condition(
     if let Some(ev) = ev_check_level.iter().last() {
         let level_index = level.index();
         let level_desc = &levels.levels()[level_index];
-        if grid.is_victory(level_desc.balance_factor(), level_desc.victory_margin()) {
+        if grid.is_victory(level_desc.balance_factor, level_desc.victory_margin) {
             info!("VICTORY!");
             // Try to transition to next level. If there's none, this will transition
             // automatically to next stage ([`TheEnd`]).
@@ -690,7 +690,7 @@ fn cursor_movement_system(
             let level_desc = &levels.levels()[level_index];
             inventory.set_slots(
                 level_desc
-                    .inventory()
+                    .inventory
                     .iter()
                     .map(|(bref, &count)| Slot::new(bref.clone(), count)),
             );
@@ -711,7 +711,7 @@ fn plate_balance_system(
     if let Ok((plate, mut transform)) = query.single_mut() {
         let level_index = level.index();
         let level = &levels.levels()[level_index];
-        let rot = grid.calc_rot(level.balance_factor());
+        let rot = grid.calc_rot(level.balance_factor);
         transform.rotation = rot;
     }
 }
@@ -759,7 +759,7 @@ fn setup3d(
     let level = &levels.levels()[level_index];
 
     // Setup grid
-    grid.set_size(level.grid_size());
+    grid.set_size(&level.grid_size);
 
     // Create grid material
     let grid_texture = textures.add(create_grid_tex());
@@ -855,7 +855,7 @@ fn setup3d(
                 ..Default::default()
             },
             text: Text::with_section(
-                level.name().to_owned(),
+                level.name.clone(),
                 TextStyle {
                     font: asset_server.load("fonts/pacifico/Pacifico-Regular.ttf"),
                     font_size: 100.0,

@@ -71,7 +71,7 @@ fn load_level_system(
                     info!(
                         "=> Next level: #{} '{}'",
                         next_level_index,
-                        level_desc.name()
+                        level_desc.name
                     );
                     (next_level_index, level_desc)
                 } else {
@@ -87,7 +87,7 @@ fn load_level_system(
                     .levels()
                     .iter()
                     .enumerate()
-                    .find(|(_, l)| l.name() == level_name)
+                    .find(|(_, l)| l.name == *level_name)
                 {
                     info!("=> Level '{}': #{}", level_name, level_index);
                     (level_index, level_desc)
@@ -105,7 +105,7 @@ fn load_level_system(
                 let level_index = *level_index;
                 if level_index < levels.levels().len() {
                     let level_desc = &levels.levels()[level_index];
-                    info!("=> Level #{}: '{}'", level_index, level_desc.name());
+                    info!("=> Level #{}: '{}'", level_index, level_desc.name);
                     (level_index, level_desc)
                 } else {
                     error!(
@@ -120,18 +120,18 @@ fn load_level_system(
         // Load level
         *level = Level {
             index: level_index,
-            name: level_desc.name().to_owned(),
+            name: level_desc.name.clone(),
         };
         inventory.set_slots(
             level_desc
-                .inventory()
+                .inventory
                 .iter()
                 .map(|(bref, &count)| Slot::new(bref.clone(), count)),
         );
 
         // Update level name in UI
         if let Ok(mut text) = query_level_name_text.single_mut() {
-            text.sections[0].value = level_desc.name().to_owned();
+            text.sections[0].value = level_desc.name.clone();
         }
 
         // Show cursor

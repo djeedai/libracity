@@ -1,5 +1,13 @@
-use crate::{boot::UiResources, loader::Loader, AppState};
-use bevy::prelude::*;
+use crate::{
+    boot::UiResources,
+    inventory::Buildable,
+    loader::Loader,
+    serialize::{BuildableRef, Buildables, GameDataArchive, LevelDesc, Levels},
+    text_asset::TextAsset,
+    AppState, Error,
+};
+use bevy::{app::AppExit, prelude::*};
+use std::collections::HashMap;
 
 /// Main menu component.
 struct MainMenu {
@@ -177,13 +185,104 @@ fn mainmenu(
     mut status_text_query: Query<&mut Text, With<StatusText>>,
     mut keyboard_input: ResMut<Input<KeyCode>>,
     mut state: ResMut<State<AppState>>,
+    text_assets: Res<Assets<TextAsset>>,
+    commands: Commands,
+    mut levels_res: ResMut<Levels>,
+    mut buildables_res: ResMut<Buildables>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials2d: ResMut<Assets<ColorMaterial>>,
+    mut exit: EventWriter<AppExit>,
 ) {
-    if let Ok((loader, mut main_menu)) = menu_query.single_mut() {
+    if let Ok((mut loader, mut main_menu)) = menu_query.single_mut() {
         // Once all assets are loaded, allow the user to start playing
         if loader.is_done() {
+            // Retrieve and parse JSON, load assets from it
+            let handle = loader.take("levels.json").unwrap().typed::<TextAsset>();
+            let json_content = text_assets.get(handle).unwrap();
+            let mut game_data_archive = match GameDataArchive::from_json(&json_content.value[..]) {
+                Ok(game_data_archive) => game_data_archive,
+                Err(err) => {
+                    error!("Error loading game data: {:?}", err);
+                    exit.send(AppExit);
+                    return;
+                }
+            };
+
+            // Reset the loader, so that is_done() returns false
+            loader.reset();
+
+            let color_unselected = Color::rgba(1.0, 1.0, 1.0, 0.5);
+            let color_selected = Color::rgba(1.0, 1.0, 1.0, 1.0);
+            let color_empty = Color::rgba(1.0, 0.8, 0.8, 0.5);
+
+            // Load referenced assets
+            let mut buildables = HashMap::new();
+            for (item_name, rules) in game_data_archive.inventory.iter() {
+                // Load 3D model
+                let mesh: Handle<Mesh> = asset_server.load(&format!("models/{}", rules.model)[..]);
+                let material = materials.add(StandardMaterial {
+                    // TODO - from file?
+                    base_color: Color::rgb(0.8, 0.7, 0.6),
+                    ..Default::default()
+                });
+
+                // Load 2D frame
+                let frame_texture: Handle<Texture> =
+                    asset_server.load(&format!("textures/{}", rules.frame)[..]);
+                let frame_material = materials2d.add(ColorMaterial {
+                    color: color_unselected,
+                    texture: Some(frame_texture.clone()),
+                });
+                let frame_material_selected = materials2d.add(ColorMaterial {
+                    color: color_selected,
+                    texture: Some(frame_texture.clone()),
+                });
+                let frame_material_empty = materials2d.add(ColorMaterial {
+                    color: color_empty,
+                    texture: Some(frame_texture),
+                });
+
+                // Create Buildable
+                buildables.insert(
+                    BuildableRef(item_name.clone()),
+                    Buildable::new(
+                        &rules.name,
+                        rules.weight,
+                        false,
+                        mesh,
+                        material,
+                        frame_material,
+                        frame_material_selected,
+                        frame_material_empty,
+                    ),
+                );
+            }
+            *buildables_res = Buildables::with_buildables(buildables);
+
+            // Convert levels
+            let levels: Vec<_> = game_data_archive
+                .levels
+                .drain(..)
+                .map(|desc| LevelDesc {
+                    name: desc.name,
+                    grid_size: desc.grid_size,
+                    balance_factor: desc.balance_factor,
+                    victory_margin: desc.victory_margin,
+                    inventory: desc
+                        .inventory
+                        .iter()
+                        .map(|(k, v)| (BuildableRef(k.clone()), *v))
+                        .collect(),
+                })
+                .collect();
+            *levels_res = Levels::with_levels(levels);
+
+            // Update status text
             if let Ok(mut text) = status_text_query.single_mut() {
                 text.sections[0].value = "Press [ENTER] to start".to_owned();
             }
+
+            // Enable player input
             main_menu.can_start = true;
         }
 
