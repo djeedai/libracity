@@ -357,12 +357,18 @@ fn main() {
             asset_folder: "assets".to_string(),
         })
         // Main window
-        //.insert_resource(ClearColor(Color::rgb(0.9, 0.9, 0.9)))
         .insert_resource(WindowDescriptor {
             title: "Libra City".to_string(),
             vsync: true,
             ..Default::default()
         });
+
+    // Clear screen in transparent black by default to hide any artifact, but in bright magenta
+    // in debug to highlight those artifacts (which need to be fixed).
+    #[cfg(debug_assertions)]
+    app.insert_resource(ClearColor(Color::rgb(1.0, 0.0, 1.0)));
+    #[cfg(not(debug_assertions))]
+    app.insert_resource(ClearColor(Color::NONE));
 
     // Only enable MSAA on non-web platforms
     #[cfg(not(target_arch = "wasm32"))]
@@ -747,6 +753,7 @@ fn create_grid_tex() -> Texture {
 
 /// set up a simple 3D scene
 fn setup3d(
+    mut clear_color: ResMut<ClearColor>,
     mut entity_manager: ResMut<EntityManager>,
     asset_server: Res<AssetServer>,
     level: Res<Level>,
@@ -760,6 +767,9 @@ fn setup3d(
 ) {
     let level_index = level.index();
     let level = &levels.levels()[level_index];
+
+    // Set clear color to background color
+    clear_color.0 = Color::rgb(0.15, 0.15, 0.15);
 
     // Setup grid
     grid.set_size(&level.grid_size);
