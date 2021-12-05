@@ -72,11 +72,7 @@ fn load_level_system(
                 let levels = levels.levels();
                 if next_level_index < levels.len() {
                     let level_desc = &levels[next_level_index];
-                    info!(
-                        "=> Next level: #{} '{}'",
-                        next_level_index,
-                        level_desc.name
-                    );
+                    info!("=> Next level: #{} '{}'", next_level_index, level_desc.name);
                     (next_level_index, level_desc)
                 } else {
                     info!("=== THE END ===");

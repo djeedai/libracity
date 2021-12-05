@@ -176,7 +176,11 @@ fn mainmenu_setup(
     );
 
     // Spawn main menu
-    commands.spawn().insert(menu_data).insert(loader);
+    commands
+        .spawn()
+        .insert(Name::new("MainMenu"))
+        .insert(menu_data)
+        .insert(loader);
 }
 
 fn mainmenu(

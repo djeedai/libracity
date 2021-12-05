@@ -235,7 +235,7 @@ impl Inventory {
         }
         None
     }
-    
+
     pub fn clear_entities(&mut self, commands: &mut Commands) {
         if let Some(root_node) = self.root_node.take() {
             commands.entity(root_node).despawn_recursive();
@@ -364,6 +364,7 @@ fn regenerate_ui(
                     material: ui_resouces.transparent_material.clone(),
                     ..Default::default()
                 })
+                .insert(Name::new("Inventory"))
                 .with_children(|parent| {
                     if inventory.slots().len() == 0 {
                         error!("Empty inventory!");
@@ -404,6 +405,7 @@ fn regenerate_ui(
                                     .get_frame_material(&SlotState::from_data(count, index == 0)),
                                 ..Default::default()
                             });
+                            frame.insert(Name::new(format!("Slot #{}", index)));
                             let text = frame
                                 .with_children(|parent| {
                                     // Item count in slot

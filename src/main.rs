@@ -208,6 +208,7 @@ impl Grid {
                             transform: Transform::from_translation(Vec3::new(fpos.x, 0.0, -fpos.y)),
                             ..Default::default()
                         })
+                        .insert(Name::new(format!("Tile({},{})", i, j)))
                         .insert(Parent(parent))
                         .id(),
                 );
@@ -796,6 +797,7 @@ fn setup3d(
     let plate = plate_cmds.id();
     //entity_manager.all_entities.push(plate);
     plate_cmds
+        .insert(Name::new("Plate"))
         .insert(Transform::identity())
         .insert(GlobalTransform::identity())
         .insert(Plate::new(plate));
@@ -816,7 +818,9 @@ fn setup3d(
             * Transform::from_scale(Vec3::new(1.0, 0.3, 1.0)),
         ..Default::default()
     });
-    cursor_entity_cmds.insert(Parent(plate));
+    cursor_entity_cmds
+        .insert(Name::new("Cursor"))
+        .insert(Parent(plate));
     let mut cursor = Cursor::new(cursor_entity_cmds.id(), plate);
     cursor.set_cursor(cursor_mesh, cursor_mat);
     cursor_entity_cmds.insert(cursor);
@@ -870,6 +874,7 @@ fn setup3d(
             ),
             ..Default::default()
         })
+        .insert(Name::new("LevelName"))
         .insert(LevelNameText) // marker to allow finding this text to change it
         .id();
     entity_manager.all_entities.push(title);

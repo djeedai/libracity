@@ -18,7 +18,7 @@ pub enum State {
 
 /// Helper to load a group of assets together and wait for completion of all without
 /// having to manually poll for each asset individually.
-/// 
+///
 /// # Lifecycle
 ///
 /// The loader starts in an idle state where requests can be enqueued with [`enqueue`].
@@ -26,15 +26,15 @@ pub enum State {
 /// asset server. The loading state of the entire group can be queried with [`is_done`];
 /// once that returns `true`, individual assets can be extracted from the [`Loader`]
 /// with [`take`].
-/// 
+///
 /// The [`Loader`] will keep all assets loaded until they're consume with [`take`], or
 /// the loader is reset with [`reset`]. When reset, all pending and loaded assets are
 /// forgotten (the asset server may continue pending loadings, but the loader will not
 /// keep a handle to them). Once reset, a new batch of assets can be enqueued and submitted,
 /// allowing to reuse the loader for a subsequent operation.
-/// 
+///
 /// # Example
-/// 
+///
 /// ```rust
 /// // Create the loader and enqueue requests, generally from a startup system.
 /// fn setup(mut commands: Commands) {
@@ -54,7 +54,7 @@ pub enum State {
 ///   }
 /// }
 /// ```
-/// 
+///
 /// [`enqueue`]: Loader::enqueue
 /// [`submit`]: Loader::submit
 /// [`is_done`]: Loader::is_done
@@ -119,9 +119,9 @@ impl Loader {
 
     /// Submit the pending batch of asset loading requests. After this, no new request can be
     /// enqueued until [`reset`] is called.
-    /// 
+    ///
     /// Panics if the loader is not in the idle state.
-    /// 
+    ///
     /// [`reset`]: Loader::reset
     pub fn submit(&mut self) {
         let mut state = self.state.write();
