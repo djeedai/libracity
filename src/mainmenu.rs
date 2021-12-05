@@ -291,7 +291,7 @@ fn mainmenu(
         }
 
         if main_menu.can_start {
-            if keyboard_input.just_pressed(KeyCode::P) {
+            if keyboard_input.just_pressed(KeyCode::Return) {
                 state.set(AppState::InGame).unwrap();
                 // BUGBUG -- https://bevy-cheatbook.github.io/programming/states.html
                 keyboard_input.reset(KeyCode::Return);
