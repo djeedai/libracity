@@ -24,6 +24,7 @@ use std::{collections::HashMap, f32::consts::*, fs::File, io::Read};
 use bevy_inspector_egui::{WorldInspectorParams, WorldInspectorPlugin};
 
 mod boot;
+mod config;
 mod error;
 mod inventory;
 mod level;
@@ -34,6 +35,7 @@ mod text_asset;
 
 use crate::{
     boot::{BootPlugin, UiResources},
+    config::Config,
     error::Error,
     inventory::{
         Buildable, Inventory, InventoryPlugin, RegenerateInventoryUiEvent, SelectSlot,
@@ -401,7 +403,6 @@ fn main() {
     app
         // Audio (Kira)
         .add_plugin(AudioPlugin)
-        .add_startup_system(start_background_audio.system())
         // Events
         .add_event::<CheckLevelResultEvent>()
         .add_event::<ResetPlateEvent>()
@@ -501,10 +502,6 @@ fn check_victory_condition(
             ev_load_level.send(LoadLevelEvent(LoadLevel::Next));
         }
     }
-}
-
-fn start_background_audio(asset_server: Res<AssetServer>, audio: Res<Audio>) {
-    audio.play_looped(asset_server.load("audio/ambient1.ogg"));
 }
 
 fn inputs_system(

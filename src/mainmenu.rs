@@ -4,9 +4,10 @@ use crate::{
     loader::Loader,
     serialize::{BuildableRef, Buildables, GameDataArchive, LevelDesc, Levels},
     text_asset::TextAsset,
-    AppState, Error,
+    AppState, Config, Error,
 };
 use bevy::{app::AppExit, prelude::*};
+use bevy_kira_audio::{Audio, AudioSource};
 use std::collections::HashMap;
 
 /// Main menu component.
@@ -311,13 +312,23 @@ fn mainmenu_exit(mut commands: Commands, mut query: Query<(&mut MainMenu,)>) {
     }
 }
 
+fn start_background_audio(asset_server: Res<AssetServer>, audio: Res<Audio>, config: Res<Config>) {
+    if config.sound.enabled {
+        let source: Handle<AudioSource> = asset_server.load("audio/ambient1.ogg");
+        audio.set_volume(config.sound.volume);
+        audio.play_looped(source);
+    }
+}
+
 /// Plugin to handle the main menu.
 pub struct MainMenuPlugin;
 
 impl Plugin for MainMenuPlugin {
     fn build(&self, app: &mut AppBuilder) {
         app.add_system_set(
-            SystemSet::on_enter(AppState::MainMenu).with_system(mainmenu_setup.system()),
+            SystemSet::on_enter(AppState::MainMenu)
+                .with_system(mainmenu_setup.system())
+                .with_system(start_background_audio.system()),
         )
         .add_system_set(SystemSet::on_update(AppState::MainMenu).with_system(mainmenu.system()))
         .add_system_set(SystemSet::on_exit(AppState::MainMenu).with_system(mainmenu_exit.system()));
