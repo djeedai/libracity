@@ -139,6 +139,17 @@ impl Loader {
         self.count.load(Ordering::Acquire)
     }
 
+    /// Return the percentage of loading completed, in [0:1].
+    pub fn percent_done(&self) -> f32 {
+        let total = self.count.load(Ordering::Relaxed);
+        if total > 0 {
+            let remain = self.request_queue.lock().len();
+            (total - remain) as f32 / total as f32
+        } else {
+            1.0
+        }
+    }
+
     /// Is the loader done loading the current asset batch?
     pub fn is_done(&self) -> bool {
         *self.state.read() == State::Done
