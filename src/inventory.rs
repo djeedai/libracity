@@ -149,7 +149,7 @@ impl Inventory {
         self.slots = slots.into_iter().collect();
         let slot_count = self.slots.len();
         self.selected_index = if slot_count > 0 {
-            self.selected_index.clamp(0, slot_count)
+            self.selected_index.clamp(0, slot_count - 1)
         } else {
             0
         };
