@@ -631,13 +631,12 @@ fn cursor_movement_system(
                             let fpos = grid.fpos(&cursor.pos);
                             debug!("Spawn buildable at pos={:?} fpos={:?}", cursor.pos, fpos);
                             let entity = commands
-                                .spawn_bundle(PbrBundle {
-                                    mesh: buildable.mesh().clone(),
-                                    material: buildable.material().clone(),
-                                    transform: Transform::from_translation(Vec3::new(
-                                        fpos.x, 0.1, -fpos.y,
-                                    )),
-                                    ..Default::default()
+                                .spawn_bundle((
+                                    Transform::from_xyz(fpos.x, 0.1, -fpos.y),
+                                    GlobalTransform::identity(),
+                                ))
+                                .with_children(|parent| {
+                                    parent.spawn_scene(buildable.mesh().clone());
                                 })
                                 .insert(Parent(cursor.spawn_root_entity))
                                 .id();

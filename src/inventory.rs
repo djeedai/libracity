@@ -32,7 +32,7 @@ pub struct Buildable {
     /// Is the buildable stackable?
     stackable: bool,
     /// Handle to the 3D model.
-    mesh: Handle<Mesh>,
+    mesh: Handle<Scene>,
     /// Handle to the material of the 3D model.
     material: Handle<StandardMaterial>,
     /// Handle to the frame material in default state.
@@ -48,7 +48,7 @@ impl Buildable {
         name: &str,
         weight: f32,
         stackable: bool,
-        mesh: Handle<Mesh>,
+        mesh: Handle<Scene>,
         material: Handle<StandardMaterial>,
         frame_material: Handle<ColorMaterial>,
         frame_material_selected: Handle<ColorMaterial>,
@@ -79,7 +79,7 @@ impl Buildable {
         self.weight
     }
 
-    pub fn mesh(&self) -> &Handle<Mesh> {
+    pub fn mesh(&self) -> &Handle<Scene> {
         &self.mesh
     }
 

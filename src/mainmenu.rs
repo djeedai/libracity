@@ -224,7 +224,7 @@ fn mainmenu(
             let mut buildables = HashMap::new();
             for (item_name, rules) in game_data_archive.inventory.iter() {
                 // Load 3D model
-                let mesh: Handle<Mesh> = asset_server.load(&format!("models/{}", rules.model)[..]);
+                let mesh: Handle<Scene> = asset_server.load(&format!("models/{}", rules.model)[..]);
                 let material = materials.add(StandardMaterial {
                     // TODO - from file?
                     base_color: Color::rgb(0.8, 0.7, 0.6),
