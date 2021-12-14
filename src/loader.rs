@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::{asset::AssetStage, prelude::*};
 use parking_lot::{Mutex, RwLock};
 use std::{
     collections::HashMap,
@@ -224,17 +224,20 @@ fn tick_loaders(asset_server: Res<AssetServer>, mut query: Query<(&mut Loader,)>
 
 pub struct LoaderPlugin;
 
-static LOADER_STAGE: &str = "loader";
+#[derive(Debug, Hash, PartialEq, Eq, Clone, StageLabel)]
+pub enum LoaderStage {
+    UpdateLoaders,
+}
 
 impl Plugin for LoaderPlugin {
     fn build(&self, app: &mut AppBuilder) {
         // Add Level resource and event
-        app.add_stage_before(
-            CoreStage::First,
-            LOADER_STAGE,
+        app.add_stage_after(
+            AssetStage::LoadAssets,
+            LoaderStage::UpdateLoaders,
             SystemStage::single_threaded(),
         )
-        .add_system_to_stage(LOADER_STAGE, tick_loaders.system());
+        .add_system_to_stage(LoaderStage::UpdateLoaders, tick_loaders.system());
     }
 }
 

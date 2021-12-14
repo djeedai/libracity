@@ -1,9 +1,9 @@
-use bevy::{app::CoreStage, prelude::*};
+use bevy::{app::CoreStage, asset::AssetStage, prelude::*};
 
 use crate::{
     inventory::{Inventory, Slot},
     serialize::{Buildables, Levels},
-    AppState, Cursor, RegenerateInventoryUiEvent, ResetPlateEvent, Grid,
+    AppState, Cursor, Grid, RegenerateInventoryUiEvent, ResetPlateEvent,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,9 +47,10 @@ impl Level {
     }
 }
 
-/// System reacting to the [`LoadLevelEvent`] event to load the specified level.
-/// The system runs at the very end of the frame, after all other stages.
-fn load_level_system(
+/// System reacting to the [`LoadLevelEvent`] event to change the current level.
+/// The system runs toward the beginning of the frame, before assets are loaded,
+/// so it can enqueue some asset loading.
+fn change_level_system(
     mut level: ResMut<Level>,
     mut inventory: ResMut<Inventory>,
     levels: Res<Levels>,
@@ -150,7 +151,10 @@ fn load_level_system(
     }
 }
 
-static LOAD_LEVEL_STAGE: &str = "load_level";
+#[derive(Debug, Hash, PartialEq, Eq, Clone, StageLabel)]
+pub enum LevelStage {
+    ChangeLevel,
+}
 
 /// Plugin for loading levels. This inserts a [`Level`] resource and update it when
 /// a [`LoadLevelEvent`] is received.
@@ -164,11 +168,11 @@ impl Plugin for LevelPlugin {
 
         // Insert stage after last built-in stage and run load_level_system() there, at the very end
         // of the frame, to ensure that there's no pending entity or component being created/destroyed.
-        app.add_stage_after(
-            CoreStage::Last,
-            LOAD_LEVEL_STAGE,
+        app.add_stage_before(
+            AssetStage::LoadAssets,
+            LevelStage::ChangeLevel,
             SystemStage::single_threaded(),
         )
-        .add_system_to_stage(LOAD_LEVEL_STAGE, load_level_system.system());
+        .add_system_to_stage(LevelStage::ChangeLevel, change_level_system.system());
     }
 }

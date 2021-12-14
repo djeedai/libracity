@@ -4,6 +4,7 @@ use bevy::{
     app::AppExit,
     asset::AssetServerSettings,
     diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
+    ecs::schedule::ReportExecutionOrderAmbiguities,
     gltf::{Gltf, GltfMesh},
     prelude::*,
     render::{
@@ -26,6 +27,7 @@ use bevy_inspector_egui::{WorldInspectorParams, WorldInspectorPlugin};
 mod boot;
 mod config;
 mod error;
+mod game;
 mod inventory;
 mod level;
 mod loader;
@@ -37,6 +39,7 @@ use crate::{
     boot::{BootPlugin, UiResources},
     config::Config,
     error::Error,
+    game::GamePlugin,
     inventory::{
         Buildable, Inventory, InventoryPlugin, RegenerateInventoryUiEvent, SelectSlot,
         SelectSlotEvent, Slot, SlotState, UpdateInventorySlots,
@@ -48,7 +51,7 @@ use crate::{
     text_asset::{TextAsset, TextAssetPlugin},
 };
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum AppState {
     /// Boot sequence (critical assets loading).
     Boot,
@@ -376,6 +379,10 @@ fn main() {
     #[cfg(not(target_arch = "wasm32"))]
     app.insert_resource(Msaa { samples: 4 });
 
+    // // Report ambiguous systems in debug
+    // #[cfg(debug_assertions)]
+    // app.insert_resource(ReportExecutionOrderAmbiguities);
+
     app
         // Helper to exit with ESC key
         .add_system(bevy::input::system::exit_on_esc_system.system())
@@ -400,6 +407,14 @@ fn main() {
     app.add_plugin(WorldInspectorPlugin::new())
         .add_system(inspector_toggle.system());
 
+    // Initial state
+    let initial_state = AppState::Boot;
+    app.add_state(initial_state)
+        .add_state_to_stage(CoreStage::First, initial_state) // BUG #1671
+        .add_state_to_stage(CoreStage::PreUpdate, initial_state) // BUG #1671
+        .add_state_to_stage(CoreStage::PostUpdate, initial_state) // BUG #1671
+        .add_state_to_stage(CoreStage::Last, initial_state); // BUG #1671
+
     app
         // Audio (Kira)
         .add_plugin(AudioPlugin)
@@ -413,6 +428,8 @@ fn main() {
         .add_plugin(TextAssetPlugin)
         .add_plugin(SerializePlugin)
         .add_plugin(LoaderPlugin)
+        // Game logic
+        .add_plugin(GamePlugin)
         // Level management
         .add_plugin(LevelPlugin)
         // Inventory management
@@ -425,12 +442,10 @@ fn main() {
         .add_system_set(
             SystemSet::on_enter(AppState::InGame).with_system(setup3d.system().label("setup3d")),
         )
-        // FIXME - Broken in 0.5 apparently
-        // .add_system_set_to_stage(
-        //     CoreStage::PreUpdate,
-        //     SystemSet::on_update(AppState::InGame).with_system(inputs_system.system()),
-        // )
-        .add_system_set(SystemSet::on_update(AppState::InGame).with_system(inputs_system.system()))
+        .add_system_set_to_stage(
+            CoreStage::PreUpdate,
+            SystemSet::on_update(AppState::InGame).with_system(inputs_system.system()),
+        )
         .add_system_set(
             SystemSet::on_update(AppState::InGame)
                 .with_system(
@@ -449,59 +464,23 @@ fn main() {
                         .system()
                         .label("cursor_movement_system"),
                 )
-                .with_system(plate_balance_system.system().label("plate_balance_system"))
-                .with_system(
-                    check_victory_condition
-                        .system()
-                        .label("check_victory_condition"),
-                ),
+                .with_system(plate_balance_system.system().label("plate_balance_system")),
         )
         //.add_stage_after(CoreStage::Update, DEBUG, SystemStage::single_threaded())
-        .add_system_set(
-            SystemSet::on_exit(AppState::InGame).with_system(
-                cleanup3d
-                    .system()
-                    .after("setup3d")
-                    .after("plate_movement_system")
-                    //.after("draw_debug_axes_system")
-                    .after("cursor_movement_system")
-                    .after("plate_balance_system")
-                    .after("check_victory_condition"),
-            ),
+        .add_system_set_to_stage(
+            CoreStage::Last,
+            SystemSet::on_exit(AppState::InGame).with_system(cleanup3d.system()),
         ) // https://github.com/bevyengine/bevy/issues/1743#issuecomment-806335175
         // == TheEnd state ==
         .add_system_set(
             SystemSet::on_enter(AppState::TheEnd).with_system(spawn_end_screen.system()),
-        )
-        // Initial state
-        .add_state(AppState::Boot)
-        //.add_state(AppState::MainMenu)
-        //.add_state(AppState::InGame)
-        //.add_state(AppState::TheEnd)
-        .run();
-}
+        );
 
-fn check_victory_condition(
-    grid: Res<Grid>,
-    level: Res<Level>,
-    levels: Res<Levels>,
-    mut ev_check_level: EventReader<CheckLevelResultEvent>,
-    mut ev_load_level: EventWriter<LoadLevelEvent>,
-) {
-    if let Some(ev) = ev_check_level.iter().last() {
-        let level_index = level.index();
-        let level_desc = &levels.levels()[level_index];
-        if grid.is_victory(level_desc.balance_factor, level_desc.victory_margin) {
-            info!("VICTORY!");
-            // Try to transition to next level. If there's none, this will transition
-            // automatically to next stage ([`TheEnd`]).
-            // TODO - Instead of deciding here that "end of current level == load next",
-            //        send an event to some game/level manager that will decide what to do,
-            //        which avoids having to expose AppState::TheEnd to the Level module.
-            //        This also allows playing some "level cleared" transition while loading.
-            ev_load_level.send(LoadLevelEvent(LoadLevel::Next));
-        }
+    for (label, stage) in app.app.schedule.iter_stages() {
+        println!("stage: {:?}", label);
     }
+
+    app.run();
 }
 
 fn inputs_system(
