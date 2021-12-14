@@ -775,7 +775,7 @@ fn setup3d(
     let grid_texture = textures.add(create_grid_tex());
     let grid_material = materials.add(StandardMaterial {
         base_color_texture: Some(grid_texture),
-        unlit: true,
+        //unlit: true,
         ..Default::default()
     });
     grid.set_material(grid_material.clone());
@@ -834,7 +834,11 @@ fn setup3d(
 
     // Light
     commands.spawn_bundle(LightBundle {
-        transform: Transform::from_xyz(4.0, 8.0, 4.0),
+        light: Light {
+            intensity: 400.0,
+            ..Default::default()
+        },
+        transform: Transform::from_xyz(-4.0, 3.0, 4.0),
         ..Default::default()
     });
 
