@@ -2,13 +2,13 @@
     "inventory": {
         "hut": {
             "name": "Hut",
-            "model": "hut.gltf#Scene0",
+            "model": "hut.glb#Scene0",
             "frame": "frame_hut.png",
             "weight": 1.0
         },
         "chieftain_hut": {
             "name": "Chieftain Hut",
-            "model": "chieftain_hut.gltf#Scene0",
+            "model": "chieftain_hut.glb#Scene0",
             "frame": "frame_chieftain_hut.png",
             "weight": 2.0
         }
