@@ -272,8 +272,11 @@ fn boot(
             // Assign the loaded config if any
             if let Some(handle) = loader.take("config.json") {
                 let handle = handle.typed::<TextAsset>();
-                let json_config = text_assets.get(handle).unwrap();
-                *config = Config::from_json(&json_config.value[..]).unwrap();
+                // The Loader completes when the asset is successfully loaded, or cannot be loaded.
+                // Since this is a config file, and is therefore optional, it may not exist.
+                if let Some(json_config) = text_assets.get(handle) {
+                    *config = Config::from_json(&json_config.value[..]).unwrap();
+                }
             }
 
             // Assign the UI resources for the main menu, which will immediately replace the
