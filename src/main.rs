@@ -119,20 +119,29 @@ fn plate_reset_system(
     }
 }
 
+/// The game cursor controlled by the player.
 #[derive(Debug)]
 pub struct Cursor {
+    /// Is the cursor enabled (reacts to user input)?
+    enabled: bool,
+    /// Position of the cursor on the board, in cell coordinates.
     pos: IVec2,
     move_speed: f32,
     //weight: f32,
+    /// Entity representing the cursor and owning the render object.
     cursor_entity: Entity,
+    /// Cursor mesh.
     cursor_mesh: Handle<Mesh>,
+    /// Cursor material.
     cursor_mat: Handle<StandardMaterial>,
+    /// The entity to parent the cursor entity to.
     spawn_root_entity: Entity,
 }
 
 impl Cursor {
     pub fn new(cursor_entity: Entity, spawn_root_entity: Entity) -> Cursor {
         Cursor {
+            enabled: false,
             pos: IVec2::ZERO,
             move_speed: 1.0,
             //weight: 1.0,
@@ -146,6 +155,14 @@ impl Cursor {
     pub fn set_cursor(&mut self, mesh: Handle<Mesh>, mat: Handle<StandardMaterial>) {
         self.cursor_mesh = mesh;
         self.cursor_mat = mat;
+    }
+
+    pub fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
+    }
+
+    pub fn enabled(&self) -> bool {
+        self.enabled
     }
 
     // pub fn set_alpha(&mut self, alpha: f32) {
@@ -599,6 +616,11 @@ fn cursor_movement_system(
     mut query: Query<(&mut Cursor, &mut Transform, &mut Visible)>,
 ) {
     if let Ok((mut cursor, mut transform, mut visible)) = query.single_mut() {
+        // If cursor is disabled, do nothing
+        if !cursor.enabled() {
+            return;
+        }
+
         // Move cursor around the grid
         let mut pos = cursor.pos;
         if keyboard_input.just_pressed(KeyCode::Left) || keyboard_input.just_pressed(KeyCode::A) {

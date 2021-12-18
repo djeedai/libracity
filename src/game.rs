@@ -1,4 +1,6 @@
-use crate::{AppState, CheckLevelResultEvent, Grid, Level, Levels, LoadLevel, LoadLevelEvent};
+use crate::{
+    AppState, CheckLevelResultEvent, Cursor, Grid, Level, Levels, LoadLevel, LoadLevelEvent,
+};
 use bevy::prelude::*;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -51,10 +53,15 @@ fn game_sequence(
     mut ev_check_level: EventReader<CheckLevelResultEvent>,
     mut ev_load_level: EventWriter<LoadLevelEvent>,
     mut app_state: ResMut<State<AppState>>,
+    mut query: Query<(&mut Cursor, &mut Visible)>,
 ) {
     match game.sequence {
         GameSequence::Intro => {
             if game.timer.tick(time.delta()).just_finished() {
+                if let Ok((mut cursor, mut visible)) = query.single_mut() {
+                    cursor.set_enabled(true);
+                    visible.is_visible = true;
+                }
                 game.advance_sequence();
             }
         }
@@ -71,6 +78,10 @@ fn game_sequence(
                         "Victory! Level #{} '{}' cleared.",
                         level_index, level_desc.name
                     );
+                    if let Ok((mut cursor, mut visible)) = query.single_mut() {
+                        cursor.set_enabled(false);
+                        visible.is_visible = false;
+                    }
                     game.advance_sequence();
                 }
             }
@@ -85,7 +96,7 @@ fn game_sequence(
                     ev_load_level.send(LoadLevelEvent(LoadLevel::Next));
                 } else {
                     trace!("Game sequence: Victory => TheEnd");
-                    app_state.set(AppState::TheEnd);
+                    app_state.set(AppState::TheEnd).unwrap();
                 }
             }
         }
