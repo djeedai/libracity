@@ -60,7 +60,7 @@ pub enum State {
 /// [`is_done`]: Loader::is_done
 /// [`take`]: Loader::take
 /// [`reset`]: Loader::reset
-#[derive(Debug)]
+#[derive(Debug, Component)]
 pub struct Loader {
     /// Loader state.
     state: RwLock<State>,
@@ -206,7 +206,7 @@ impl Loader {
                     trace!("Start loading asset: {} -> {:?}", path, &handle);
                     self.work_queue.lock().push((path, handle));
                 }
-                bevy::asset::LoadState::Loaded | bevy::asset::LoadState::Failed => {
+                bevy::asset::LoadState::Loaded | bevy::asset::LoadState::Failed | bevy::asset::LoadState::Unloaded => {
                     trace!("Asset: {} -> {:?}", path, &handle);
                     self.count.fetch_sub(1, Ordering::Release);
                 }
@@ -230,14 +230,14 @@ pub enum LoaderStage {
 }
 
 impl Plugin for LoaderPlugin {
-    fn build(&self, app: &mut AppBuilder) {
+    fn build(&self, app: &mut App) {
         // Add Level resource and event
         app.add_stage_after(
             AssetStage::LoadAssets,
             LoaderStage::UpdateLoaders,
             SystemStage::single_threaded(),
         )
-        .add_system_to_stage(LoaderStage::UpdateLoaders, tick_loaders.system());
+        .add_system_to_stage(LoaderStage::UpdateLoaders, tick_loaders);
     }
 }
 

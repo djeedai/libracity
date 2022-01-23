@@ -1,16 +1,8 @@
 use crate::{loader::Loader, text_asset::TextAsset, AppState, Config};
 use bevy::{
-    core::Byteable,
     prelude::*,
     reflect::TypeUuid,
-    render::{
-        camera::OrthographicProjection,
-        mesh::shape,
-        pipeline::{PipelineDescriptor, RenderPipeline},
-        render_graph::{base, RenderGraph, RenderResourcesNode},
-        renderer::{RenderResource, RenderResources},
-        shader::{ShaderStage, ShaderStages},
-    },
+    render::{camera::OrthographicProjection, mesh::shape},
 };
 
 pub struct UiResources {
@@ -45,9 +37,6 @@ impl UiResources {
 //     alpha: u8,
 // }
 
-// // Implement the Byteable trait, required for RenderResource
-// unsafe impl Byteable for Color32 {}
-
 // impl Into<Color32> for Color {
 //     fn into(self) -> Color32 {
 //         if let Color::Rgba {
@@ -70,7 +59,7 @@ impl UiResources {
 // }
 
 /// Uniform render resource to pass data from CPU to GPU.
-#[derive(RenderResources, Default, Debug, TypeUuid)]
+#[derive(Default, Debug, TypeUuid, Component)]
 #[uuid = "463e4b8a-d555-4fc2-ba9f-4c880063ba92"]
 //#[render_resources(from_self)] // BUG #3295 - does not work
 //#[repr(C)]
@@ -82,9 +71,6 @@ struct ProgressBarUniform {
     /// Progress bar fraction in [0:1].
     loading_fraction: f32,
 }
-
-// Implement the Byteable trait, required for RenderResource
-//unsafe impl Byteable for ProgressBarUniform {}
 
 const VERTEX_SHADER: &str = r#"
 #version 450
@@ -133,7 +119,7 @@ void main() {
 /// Component for the boot sequence entity holding the [`Loader`] which
 /// handles the critical boot assets, and the progress bar associated with
 /// it for user feedback.
-#[derive(Debug)]
+#[derive(Debug, Component)]
 struct Boot {
     /// Actual realtime boot progress, based on number of loaded assets.
     progress: f32,
@@ -176,52 +162,30 @@ fn boot_setup(
     asset_server: Res<AssetServer>,
     mut clear_color: ResMut<ClearColor>,
     mut commands: Commands,
-    mut pipelines: ResMut<Assets<PipelineDescriptor>>,
-    mut shaders: ResMut<Assets<Shader>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut render_graph: ResMut<RenderGraph>,
 ) {
     trace!("boot_setup");
 
     // Set clear color to background color
     clear_color.0 = Color::rgba(0.1, 0.1, 0.1, 0.0);
 
-    // Create a new shader pipeline
-    let pipeline_handle = pipelines.add(PipelineDescriptor::default_config(ShaderStages {
-        vertex: shaders.add(Shader::from_glsl(ShaderStage::Vertex, VERTEX_SHADER)),
-        fragment: Some(shaders.add(Shader::from_glsl(ShaderStage::Fragment, FRAGMENT_SHADER))),
-    }));
-
-    // Add a `RenderResourcesNode` to our `RenderGraph`. This will bind `ProgressBarUniform` to our
-    // shader.
-    render_graph.add_system_node(
-        "progress_bar_uniform",
-        RenderResourcesNode::<ProgressBarUniform>::new(true),
-    );
-
-    // Add a `RenderGraph` edge connecting our new "progress_bar_uniform" node to the main pass node. This
-    // ensures that "progress_bar_uniform" runs before the main pass.
-    render_graph
-        .add_node_edge("progress_bar_uniform", base::node::MAIN_PASS)
-        .unwrap();
-
     let mut boot = Boot::default();
 
     // Spawn the progress bar
     boot.entities.push(
         commands
-            .spawn_bundle(MeshBundle {
-                mesh: meshes.add(Mesh::from(shape::Quad::new(Vec2::new(200.0, 3.0)))),
-                render_pipelines: RenderPipelines::from_pipelines(vec![RenderPipeline::new(
-                    pipeline_handle,
-                )]),
+            .spawn_bundle(SpriteBundle {
+                sprite: Sprite {
+                    color: Color::rgba(0.3, 0.4, 0.3, 1.0),
+                    custom_size: Some(Vec2::new(200., 3.)),
+                    ..Default::default()
+                },
                 transform: Transform::identity(),
                 ..Default::default()
             })
             .insert(ProgressBarUniform {
                 loading_fraction: 0.0,
-                back_color: Color::rgba(0.2, 0.2, 0.2, 1.0), //.into(),
-                fill_color: Color::rgba(0.3, 0.4, 0.3, 1.0), //.into(),
+                back_color: Color::rgba(0.2, 0.2, 0.2, 1.0),
+                fill_color: Color::rgba(0.3, 0.4, 0.3, 1.0),
             })
             .id(),
     );
@@ -257,58 +221,58 @@ fn boot(
     mut query: Query<(Entity, &mut Loader, &mut Boot)>,
     mut ui_resouces: ResMut<UiResources>,
     mut state: ResMut<State<AppState>>,
-    mut shader_query: Query<&mut ProgressBarUniform>,
+    mut shader_query: Query<(&mut Sprite, &mut ProgressBarUniform)>,
 ) {
-    if let Ok((id, mut loader, mut boot)) = query.single_mut() {
-        if loader.is_done() {
-            // Mark the Boot entity for later destruction (at the end of the stage)
-            commands.entity(id).despawn();
+    let (id, mut loader, mut boot) = query.single_mut();
+    if loader.is_done() {
+        // Mark the Boot entity for later destruction (at the end of the stage)
+        commands.entity(id).despawn();
 
-            // Also delete all related entities for the boot screen
-            for id in &boot.entities {
-                commands.entity(*id).despawn();
-            }
-
-            // Assign the loaded config if any
-            if let Some(handle) = loader.take("config.json") {
-                let handle = handle.typed::<TextAsset>();
-                // The Loader completes when the asset is successfully loaded, or cannot be loaded.
-                // Since this is a config file, and is therefore optional, it may not exist.
-                if let Some(json_config) = text_assets.get(handle) {
-                    *config = Config::from_json(&json_config.value[..]).unwrap();
-                }
-            }
-
-            // Assign the UI resources for the main menu, which will immediately replace the
-            // boot sequence to allow user interaction and optionally continue loading some other
-            // assets, but this time with a basic set of assets (fonts, notably) already loaded,
-            // allowing to render some less terse user interface than a single progress bar without
-            // any text.
-            let title_font: Handle<Font> = loader
-                .take("fonts/pacifico/Pacifico-Regular.ttf")
-                .unwrap()
-                .typed::<Font>();
-            let text_font: Handle<Font> = loader
-                .take("fonts/mochiy_pop_one/MochiyPopOne-Regular.ttf")
-                .unwrap()
-                .typed::<Font>();
-            *ui_resouces = UiResources {
-                title_font,
-                text_font,
-            };
-
-            // Change app state to transition to the main menu
-            assert!(*state.current() == AppState::Boot);
-            state.set(AppState::MainMenu).unwrap();
-        } else {
-            // Update the progress bar based on the fraction of assets already loaded, smoothed with
-            // a snappy animation to be visually pleasant without too much artifically delaying the
-            // boot sequence.
-            let percent_done = loader.percent_done();
-            let percent_done = boot.progress(percent_done, time.delta_seconds());
-            let mut time_uniform = shader_query.single_mut().unwrap();
-            time_uniform.loading_fraction = percent_done;
+        // Also delete all related entities for the boot screen
+        for id in &boot.entities {
+            commands.entity(*id).despawn();
         }
+
+        // Assign the loaded config if any
+        if let Some(handle) = loader.take("config.json") {
+            let handle = handle.typed::<TextAsset>();
+            // The Loader completes when the asset is successfully loaded, or cannot be loaded.
+            // Since this is a config file, and is therefore optional, it may not exist.
+            if let Some(json_config) = text_assets.get(handle) {
+                *config = Config::from_json(&json_config.value[..]).unwrap();
+            }
+        }
+
+        // Assign the UI resources for the main menu, which will immediately replace the
+        // boot sequence to allow user interaction and optionally continue loading some other
+        // assets, but this time with a basic set of assets (fonts, notably) already loaded,
+        // allowing to render some less terse user interface than a single progress bar without
+        // any text.
+        let title_font: Handle<Font> = loader
+            .take("fonts/pacifico/Pacifico-Regular.ttf")
+            .unwrap()
+            .typed::<Font>();
+        let text_font: Handle<Font> = loader
+            .take("fonts/mochiy_pop_one/MochiyPopOne-Regular.ttf")
+            .unwrap()
+            .typed::<Font>();
+        *ui_resouces = UiResources {
+            title_font,
+            text_font,
+        };
+
+        // Change app state to transition to the main menu
+        assert!(*state.current() == AppState::Boot);
+        state.set(AppState::MainMenu).unwrap();
+    } else {
+        // Update the progress bar based on the fraction of assets already loaded, smoothed with
+        // a snappy animation to be visually pleasant without too much artifically delaying the
+        // boot sequence.
+        let percent_done = loader.percent_done();
+        let percent_done = boot.progress(percent_done, time.delta_seconds());
+        let (mut sprite, mut time_uniform) = shader_query.single_mut();
+        time_uniform.loading_fraction = percent_done;
+        sprite.custom_size = Some(Vec2::new(200. * percent_done, 3.));
     }
 }
 
@@ -316,10 +280,10 @@ fn boot(
 pub struct BootPlugin;
 
 impl Plugin for BootPlugin {
-    fn build(&self, app: &mut AppBuilder) {
+    fn build(&self, app: &mut App) {
         app.insert_resource(Config::default())
             .insert_resource(UiResources::new())
-            .add_startup_system(boot_setup.system())
-            .add_system_set(SystemSet::on_update(AppState::Boot).with_system(boot.system()));
+            .add_startup_system(boot_setup)
+            .add_system_set(SystemSet::on_update(AppState::Boot).with_system(boot));
     }
 }

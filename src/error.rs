@@ -1,4 +1,3 @@
-
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Error {
     LoadLevels,
