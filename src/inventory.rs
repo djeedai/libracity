@@ -35,12 +35,14 @@ pub struct Buildable {
     mesh: Handle<Scene>,
     /// Handle to the material of the 3D model.
     material: Handle<StandardMaterial>,
-    /// Handle to the frame material in default state.
-    frame_material: Handle<ColorMaterial>,
-    /// Handle to the frame material in selected state.
-    frame_material_selected: Handle<ColorMaterial>,
-    /// Handle to the frame material in empty state.
-    frame_material_empty: Handle<ColorMaterial>,
+    /// Handle to the frame image in default state.
+    frame_image: Handle<Image>,
+    /// Color in imselected state.
+    color_unselected: Color,
+    /// Color in selected state.
+    color_selected: Color,
+    /// Color in empty state.
+    color_empty: Color,
 }
 
 impl Buildable {
@@ -50,9 +52,10 @@ impl Buildable {
         stackable: bool,
         mesh: Handle<Scene>,
         material: Handle<StandardMaterial>,
-        frame_material: Handle<ColorMaterial>,
-        frame_material_selected: Handle<ColorMaterial>,
-        frame_material_empty: Handle<ColorMaterial>,
+        frame_image: Handle<Image>,
+        color_unselected: Color,
+        color_selected: Color,
+        color_empty: Color,
     ) -> Self {
         Buildable {
             name: name.to_owned(),
@@ -60,18 +63,23 @@ impl Buildable {
             stackable,
             mesh,
             material,
-            frame_material,
-            frame_material_selected,
-            frame_material_empty,
+            frame_image,
+            color_unselected,
+            color_selected,
+            color_empty,
         }
     }
 
-    /// Get the frame material for the given state, inferred from the item count and selection state.
-    pub fn get_frame_material(&self, state: &SlotState) -> Handle<ColorMaterial> {
+    pub fn frame_image(&self) -> Handle<Image> {
+        self.frame_image.clone()
+    }
+
+    /// Get the frame color for the given state, inferred from the item count and selection state.
+    pub fn get_frame_color(&self, state: &SlotState) -> Color {
         match state {
-            SlotState::Normal => self.frame_material.clone(),
-            SlotState::Empty => self.frame_material_empty.clone(),
-            SlotState::Selected => self.frame_material_selected.clone(),
+            SlotState::Normal => self.color_unselected,
+            SlotState::Empty => self.color_empty,
+            SlotState::Selected => self.color_selected,
         }
     }
 
@@ -126,7 +134,7 @@ impl Slot {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Component)]
 pub struct Inventory {
     slots: Vec<Slot>,
     selected_index: usize,
@@ -244,6 +252,7 @@ impl Inventory {
 }
 
 /// Inventory slot component added to each slot.
+#[derive(Component)]
 struct InventorySlot {
     /// Index of the slot in the [`Inventory`.
     index: u32,
@@ -274,7 +283,6 @@ pub struct SelectSlotEvent(pub SelectSlot);
 #[derive(Debug, Default, Clone)]
 struct UiResources {
     pub font: Handle<Font>,
-    pub transparent_material: Handle<ColorMaterial>,
 }
 
 impl UiResources {
@@ -288,17 +296,9 @@ impl UiResources {
 /// Event to regenerate the UI of the inventory.
 pub struct RegenerateInventoryUiEvent;
 
-fn setup(
-    asset_server: Res<AssetServer>,
-    mut materials2d: ResMut<Assets<ColorMaterial>>,
-    mut ui_resouces: ResMut<UiResources>,
-) {
+fn setup(asset_server: Res<AssetServer>, mut ui_resouces: ResMut<UiResources>) {
     let font = asset_server.load("fonts/mochiy_pop_one/MochiyPopOne-Regular.ttf");
-    let transparent_material = materials2d.add(Color::NONE.into());
-    *ui_resouces = UiResources {
-        font,
-        transparent_material,
-    }
+    *ui_resouces = UiResources { font }
 }
 
 fn update_slots(
@@ -306,7 +306,7 @@ fn update_slots(
     mut inventory: ResMut<Inventory>,
     mut ev_select_slot: EventReader<SelectSlotEvent>,
     mut ev_update_slots: EventReader<UpdateInventorySlots>,
-    mut slot_query: Query<(&mut InventorySlot, &mut Handle<ColorMaterial>, &Children)>,
+    mut slot_query: Query<(&mut InventorySlot, &mut UiImage, &mut UiColor, &Children)>,
     mut text_query: Query<&mut Text>,
 ) {
     // Consume all events in order and calculate the new slot index
@@ -319,7 +319,7 @@ fn update_slots(
     if changed || ev_update_slots.iter().count() > 0 {
         let selected_index = inventory.selected_index;
         trace!("UpdateInventorySlots: sel={}", selected_index);
-        for (mut slot, mut material, children) in slot_query.iter_mut() {
+        for (mut slot, mut ui_image, mut ui_color, children) in slot_query.iter_mut() {
             let mut text = text_query.get_mut(children[0]).unwrap();
             let index = slot.index;
             if let Some(slot_def) = inventory.slot(index) {
@@ -330,7 +330,8 @@ fn update_slots(
                     text.sections[0].value = format!("x{}", count).to_string();
                     trace!("-- slot: idx={} cnt={}", index, count);
                     let slot_state = SlotState::from_data(count, index == selected_index as u32);
-                    *material = buildable.get_frame_material(&slot_state);
+                    ui_image.0 = buildable.frame_image();
+                    ui_color.0 = buildable.get_frame_color(&slot_state);
                 }
             }
         }
@@ -361,7 +362,7 @@ fn regenerate_ui(
                         justify_content: JustifyContent::FlexEnd,
                         ..Default::default()
                     },
-                    material: ui_resouces.transparent_material.clone(),
+                    color: UiColor(Color::NONE),
                     ..Default::default()
                 })
                 .insert(Name::new("Inventory"))
@@ -401,8 +402,11 @@ fn regenerate_ui(
                                     justify_content: JustifyContent::Center,
                                     ..Default::default()
                                 },
-                                material: buildable
-                                    .get_frame_material(&SlotState::from_data(count, index == 0)),
+                                image: UiImage(buildable.frame_image()),
+                                color: UiColor(
+                                    buildable
+                                        .get_frame_color(&SlotState::from_data(count, index == 0)),
+                                ),
                                 ..Default::default()
                             });
                             frame.insert(Name::new(format!("Slot #{}", index)));
@@ -443,7 +447,7 @@ fn regenerate_ui(
 pub struct InventoryPlugin;
 
 impl Plugin for InventoryPlugin {
-    fn build(&self, app: &mut AppBuilder) {
+    fn build(&self, app: &mut App) {
         // Add Inventory resource and SelectSlotEvent event
         app.insert_resource(Inventory::new())
             .insert_resource(UiResources::new())
@@ -452,8 +456,8 @@ impl Plugin for InventoryPlugin {
             .add_event::<UpdateInventorySlots>();
 
         // Add system to manage the inventory
-        app.add_startup_system(setup.system())
-            .add_system(update_slots.system())
-            .add_system(regenerate_ui.system());
+        app.add_startup_system(setup)
+            .add_system(update_slots)
+            .add_system(regenerate_ui);
     }
 }

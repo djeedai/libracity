@@ -11,6 +11,7 @@ use bevy_kira_audio::{Audio, AudioSource};
 use std::collections::HashMap;
 
 /// Main menu component.
+#[derive(Component)]
 struct MainMenu {
     can_start: bool,
     //root_entity: Entity,
@@ -26,13 +27,14 @@ impl MainMenu {
     }
 }
 
+#[derive(Component)]
 struct StatusText;
 
 fn mainmenu_setup(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     ui_resouces: Res<UiResources>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
+    //mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
     // Start loading game assets
     let mut loader = Loader::new();
@@ -97,7 +99,7 @@ fn mainmenu_setup(
 
                     ..Default::default()
                 },
-                material: materials.add(Color::rgb(0.15, 0.15, 0.15).into()),
+                color: UiColor(Color::rgb(0.15, 0.15, 0.15)),
                 ..Default::default()
             })
             //.insert(Parent(root_entity))
@@ -136,7 +138,7 @@ fn mainmenu_setup(
                     justify_content: JustifyContent::Center,
                     ..Default::default()
                 },
-                material: materials.add(Color::rgb(0.15, 0.15, 0.15).into()),
+                color: UiColor(Color::rgb(0.15, 0.15, 0.15)),
                 ..Default::default()
             })
             //.insert(Parent(root_entity))
@@ -195,121 +197,106 @@ fn mainmenu(
     mut levels_res: ResMut<Levels>,
     mut buildables_res: ResMut<Buildables>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut materials2d: ResMut<Assets<ColorMaterial>>,
     mut exit: EventWriter<AppExit>,
 ) {
-    if let Ok((mut loader, mut main_menu)) = menu_query.single_mut() {
-        // Once all assets are loaded, allow the user to start playing
-        if loader.is_done() {
-            // Retrieve and parse JSON, load assets from it
-            let handle = loader.take("levels.json").unwrap().typed::<TextAsset>();
-            let json_content = text_assets.get(handle).unwrap();
-            let mut game_data_archive = match GameDataArchive::from_json(&json_content.value[..]) {
-                Ok(game_data_archive) => game_data_archive,
-                Err(err) => {
-                    error!("Error loading game data: {:?}", err);
-                    exit.send(AppExit);
-                    return;
-                }
-            };
-
-            // Reset the loader, so that is_done() returns false
-            loader.reset();
-
-            let color_unselected = Color::rgba(1.0, 1.0, 1.0, 0.5);
-            let color_selected = Color::rgba(1.0, 1.0, 1.0, 1.0);
-            let color_empty = Color::rgba(1.0, 0.8, 0.8, 0.5);
-
-            // Load referenced assets
-            let mut buildables = HashMap::new();
-            for (item_name, rules) in game_data_archive.inventory.iter() {
-                // Load 3D model
-                let mesh: Handle<Scene> = asset_server.load(&format!("models/{}", rules.model)[..]);
-                let material = materials.add(StandardMaterial {
-                    // TODO - from file?
-                    base_color: Color::rgb(0.8, 0.7, 0.6),
-                    ..Default::default()
-                });
-
-                // Load 2D frame
-                let frame_texture: Handle<Texture> =
-                    asset_server.load(&format!("textures/{}", rules.frame)[..]);
-                let frame_material = materials2d.add(ColorMaterial {
-                    color: color_unselected,
-                    texture: Some(frame_texture.clone()),
-                });
-                let frame_material_selected = materials2d.add(ColorMaterial {
-                    color: color_selected,
-                    texture: Some(frame_texture.clone()),
-                });
-                let frame_material_empty = materials2d.add(ColorMaterial {
-                    color: color_empty,
-                    texture: Some(frame_texture),
-                });
-
-                // Create Buildable
-                buildables.insert(
-                    BuildableRef(item_name.clone()),
-                    Buildable::new(
-                        &rules.name,
-                        rules.weight,
-                        false,
-                        mesh,
-                        material,
-                        frame_material,
-                        frame_material_selected,
-                        frame_material_empty,
-                    ),
-                );
+    let (mut loader, mut main_menu) = menu_query.single_mut();
+    // Once all assets are loaded, allow the user to start playing
+    if loader.is_done() {
+        // Retrieve and parse JSON, load assets from it
+        let handle = loader.take("levels.json").unwrap().typed::<TextAsset>();
+        let json_content = text_assets.get(handle).unwrap();
+        let mut game_data_archive = match GameDataArchive::from_json(&json_content.value[..]) {
+            Ok(game_data_archive) => game_data_archive,
+            Err(err) => {
+                error!("Error loading game data: {:?}", err);
+                exit.send(AppExit);
+                return;
             }
-            *buildables_res = Buildables::with_buildables(buildables);
+        };
 
-            // Convert levels
-            let levels: Vec<_> = game_data_archive
-                .levels
-                .drain(..)
-                .map(|desc| LevelDesc {
-                    name: desc.name,
-                    grid_size: desc.grid_size,
-                    balance_factor: desc.balance_factor,
-                    victory_margin: desc.victory_margin,
-                    inventory: desc
-                        .inventory
-                        .iter()
-                        .map(|(k, v)| (BuildableRef(k.clone()), *v))
-                        .collect(),
-                })
-                .collect();
-            *levels_res = Levels::with_levels(levels);
+        // Reset the loader, so that is_done() returns false
+        loader.reset();
 
-            // Update status text
-            if let Ok(mut text) = status_text_query.single_mut() {
-                text.sections[0].value = "Press [ENTER] to start".to_owned();
-            }
+        let color_unselected = Color::rgba(1.0, 1.0, 1.0, 0.5);
+        let color_selected = Color::rgba(1.0, 1.0, 1.0, 1.0);
+        let color_empty = Color::rgba(1.0, 0.8, 0.8, 0.5);
 
-            // Enable player input
-            main_menu.can_start = true;
+        // Load referenced assets
+        let mut buildables = HashMap::new();
+        for (item_name, rules) in game_data_archive.inventory.iter() {
+            // Load 3D model
+            let mesh: Handle<Scene> = asset_server.load(&format!("models/{}", rules.model)[..]);
+            let material = materials.add(StandardMaterial {
+                // TODO - from file?
+                base_color: Color::rgb(0.8, 0.7, 0.6),
+                ..Default::default()
+            });
+
+            // Load 2D frame
+            let frame_image: Handle<Image> =
+                asset_server.load(&format!("textures/{}", rules.frame)[..]);
+
+            // Create Buildable
+            buildables.insert(
+                BuildableRef(item_name.clone()),
+                Buildable::new(
+                    &rules.name,
+                    rules.weight,
+                    false,
+                    mesh,
+                    material,
+                    frame_image,
+                    color_unselected,
+                    color_selected,
+                    color_empty,
+                ),
+            );
         }
+        *buildables_res = Buildables::with_buildables(buildables);
 
-        if main_menu.can_start {
-            if keyboard_input.just_pressed(KeyCode::Return) {
-                state.set(AppState::InGame).unwrap();
-                // BUGBUG -- https://bevy-cheatbook.github.io/programming/states.html
-                keyboard_input.reset(KeyCode::Return);
-            }
+        // Convert levels
+        let levels: Vec<_> = game_data_archive
+            .levels
+            .drain(..)
+            .map(|desc| LevelDesc {
+                name: desc.name,
+                grid_size: desc.grid_size,
+                balance_factor: desc.balance_factor,
+                victory_margin: desc.victory_margin,
+                inventory: desc
+                    .inventory
+                    .iter()
+                    .map(|(k, v)| (BuildableRef(k.clone()), *v))
+                    .collect(),
+            })
+            .collect();
+        *levels_res = Levels::with_levels(levels);
+
+        // Update status text
+        let mut text = status_text_query.single_mut();
+        text.sections[0].value = "Press [ENTER] to start".to_owned();
+
+        // Enable player input
+        main_menu.can_start = true;
+    }
+
+    if main_menu.can_start {
+        if keyboard_input.just_pressed(KeyCode::Return) {
+            state.set(AppState::InGame).unwrap();
+            // BUGBUG -- https://bevy-cheatbook.github.io/programming/states.html
+            keyboard_input.reset(KeyCode::Return);
         }
     }
 }
 
-fn mainmenu_exit(mut commands: Commands, mut query: Query<(&mut MainMenu,)>) {
-    if let Ok((main_menu,)) = query.single_mut() {
-        // BUGBUG - Didn't manage to root all UI entities to a single one to despawn a tree, always got errors or warnings,
-        //          so ended up with a flat list of entities to despawn here.
-        //commands.entity(menu_data.root_entity).despawn_recursive();
-        main_menu.entities.iter().for_each(|ent| {
-            commands.entity(*ent).despawn_recursive();
-        });
-    }
+fn mainmenu_exit(mut commands: Commands, mut query: Query<&mut MainMenu>) {
+    let main_menu = query.single_mut();
+    // BUGBUG - Didn't manage to root all UI entities to a single one to despawn a tree, always got errors or warnings,
+    //          so ended up with a flat list of entities to despawn here.
+    //commands.entity(menu_data.root_entity).despawn_recursive();
+    main_menu.entities.iter().for_each(|ent| {
+        commands.entity(*ent).despawn_recursive();
+    });
 }
 
 fn start_background_audio(asset_server: Res<AssetServer>, audio: Res<Audio>, config: Res<Config>) {
@@ -324,13 +311,13 @@ fn start_background_audio(asset_server: Res<AssetServer>, audio: Res<Audio>, con
 pub struct MainMenuPlugin;
 
 impl Plugin for MainMenuPlugin {
-    fn build(&self, app: &mut AppBuilder) {
+    fn build(&self, app: &mut App) {
         app.add_system_set(
             SystemSet::on_enter(AppState::MainMenu)
-                .with_system(mainmenu_setup.system())
-                .with_system(start_background_audio.system()),
+                .with_system(mainmenu_setup)
+                .with_system(start_background_audio),
         )
-        .add_system_set(SystemSet::on_update(AppState::MainMenu).with_system(mainmenu.system()))
-        .add_system_set(SystemSet::on_exit(AppState::MainMenu).with_system(mainmenu_exit.system()));
+        .add_system_set(SystemSet::on_update(AppState::MainMenu).with_system(mainmenu))
+        .add_system_set(SystemSet::on_exit(AppState::MainMenu).with_system(mainmenu_exit));
     }
 }

@@ -3,6 +3,7 @@
 use bevy::{
     app::AppExit,
     asset::AssetServerSettings,
+    core_pipeline::ClearColor,
     diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
     ecs::schedule::ReportExecutionOrderAmbiguities,
     gltf::{Gltf, GltfMesh},
@@ -10,9 +11,7 @@ use bevy::{
     render::{
         camera::PerspectiveProjection,
         mesh::Indices,
-        pass::ClearColor,
-        pipeline::PrimitiveTopology,
-        texture::{Extent3d, TextureDimension, TextureFormat},
+        render_resource::{Extent3d, PrimitiveTopology, Texture, TextureDimension, TextureFormat},
     },
     sprite::collide_aabb::{collide, Collision},
 };
@@ -82,6 +81,7 @@ impl EntityManager {
 
 pub struct ResetPlateEvent;
 
+#[derive(Component)]
 struct Plate {
     entity: Entity,
     rotate_speed: f32,
@@ -100,7 +100,7 @@ fn plate_reset_system(
     mut commands: Commands,
     mut ev_reset_plate: EventReader<ResetPlateEvent>,
     mut grid: ResMut<Grid>,
-    query_plate: Query<(&Plate,)>,
+    query_plate: Query<&Plate>,
     mut meshes: ResMut<Assets<Mesh>>,
 ) {
     // Consume all reset events, do the work once
@@ -111,16 +111,15 @@ fn plate_reset_system(
         grid.clear(Some(&mut commands));
 
         // Rebuild plate with N copies of a single 'cell' mesh laid out in grid
-        if let Ok((plate,)) = query_plate.single() {
-            // TODO - cache mesh
-            let cell_mesh = meshes.add(Mesh::from(shape::Box::new(1.0, 0.1, 1.0)));
-            grid.regenerate(&mut commands, cell_mesh.clone(), plate.entity);
-        }
+        let plate = query_plate.single();
+        // TODO - cache mesh
+        let cell_mesh = meshes.add(Mesh::from(shape::Box::new(1.0, 0.1, 1.0)));
+        grid.regenerate(&mut commands, cell_mesh.clone(), plate.entity);
     }
 }
 
 /// The game cursor controlled by the player.
-#[derive(Debug)]
+#[derive(Debug, Component)]
 pub struct Cursor {
     /// Is the cursor enabled (reacts to user input)?
     enabled: bool,
@@ -336,6 +335,7 @@ impl Grid {
             self.entities.iter().for_each(|ent| {
                 commands.entity(*ent).despawn_recursive();
             });
+            self.entities.clear();
         }
     }
 
@@ -365,7 +365,7 @@ fn main() {
     let mut diag = LogDiagnosticsPlugin::default();
     diag.debug = true;
 
-    let mut app = App::build();
+    let mut app = App::new();
     app
         // Logging and diagnostics
         .insert_resource(bevy::log::LogSettings {
@@ -402,13 +402,9 @@ fn main() {
 
     app
         // Helper to exit with ESC key
-        .add_system(bevy::input::system::exit_on_esc_system.system())
+        .add_system(bevy::input::system::exit_on_esc_system)
         // Default plugins
         .add_plugins(DefaultPlugins);
-
-    // Browsers don't support wgpu, use the WebGL2 rendering backend instead.
-    #[cfg(target_arch = "wasm32")]
-    app.add_plugin(bevy_webgl2::WebGL2Plugin);
 
     // // Shaders shipped with bevy_prototype_debug_lines are not compatible with WebGL due to version
     // // https://github.com/mrk-its/bevy_webgl2/issues/21
@@ -422,7 +418,7 @@ fn main() {
     // In Debug build only, add egui inspector to help
     #[cfg(debug_assertions)]
     app.add_plugin(WorldInspectorPlugin::new())
-        .add_system(inspector_toggle.system());
+        .add_system(inspector_toggle);
 
     // Initial state
     let initial_state = AppState::Boot;
@@ -456,44 +452,32 @@ fn main() {
         // == MainMenu state ==
         .add_plugin(MainMenuPlugin)
         // == InGame state ==
-        .add_system_set(
-            SystemSet::on_enter(AppState::InGame).with_system(setup3d.system().label("setup3d")),
-        )
+        .add_system_set(SystemSet::on_enter(AppState::InGame).with_system(setup3d.label("setup3d")))
         .add_system_set_to_stage(
             CoreStage::PreUpdate,
-            SystemSet::on_update(AppState::InGame).with_system(inputs_system.system()),
+            SystemSet::on_update(AppState::InGame).with_system(inputs_system),
         )
         .add_system_set(
             SystemSet::on_update(AppState::InGame)
-                .with_system(
-                    plate_movement_system
-                        .system()
-                        .label("plate_movement_system"),
-                )
-                .with_system(plate_reset_system.system())
+                .with_system(plate_movement_system.label("plate_movement_system"))
+                .with_system(plate_reset_system)
                 // .with_system(
                 //     draw_debug_axes_system
-                //         .system()
+                //
                 //         .label("draw_debug_axes_system"),
                 // )
-                .with_system(
-                    cursor_movement_system
-                        .system()
-                        .label("cursor_movement_system"),
-                )
-                .with_system(plate_balance_system.system().label("plate_balance_system")),
+                .with_system(cursor_movement_system.label("cursor_movement_system"))
+                .with_system(plate_balance_system.label("plate_balance_system")),
         )
         //.add_stage_after(CoreStage::Update, DEBUG, SystemStage::single_threaded())
         .add_system_set_to_stage(
             CoreStage::Last,
-            SystemSet::on_exit(AppState::InGame).with_system(cleanup3d.system()),
+            SystemSet::on_exit(AppState::InGame).with_system(cleanup3d),
         ) // https://github.com/bevyengine/bevy/issues/1743#issuecomment-806335175
         // == TheEnd state ==
-        .add_system_set(
-            SystemSet::on_enter(AppState::TheEnd).with_system(spawn_end_screen.system()),
-        );
+        .add_system_set(SystemSet::on_enter(AppState::TheEnd).with_system(spawn_end_screen));
 
-    for (label, stage) in app.app.schedule.iter_stages() {
+    for (label, stage) in app.schedule.iter_stages() {
         println!("stage: {:?}", label);
     }
 
@@ -585,19 +569,18 @@ fn plate_movement_system(
     keyboard_input: Res<Input<KeyCode>>,
     mut query: Query<(&Plate, &mut Transform)>,
 ) {
-    if let Ok((plate, mut transform)) = query.single_mut() {
-        let mut rot = 0.0;
-        if keyboard_input.pressed(KeyCode::Q) {
-            rot -= 1.0;
-        }
-        if keyboard_input.pressed(KeyCode::E) {
-            rot += 1.0;
-        }
-        rot *= plate.rotate_speed * time.delta_seconds();
-        let delta_rot = Quat::from_rotation_ypr(rot, 0.0, 0.0);
-        let rotation = &mut transform.rotation;
-        *rotation *= delta_rot;
+    let (plate, mut transform) = query.single_mut();
+    let mut rot = 0.0;
+    if keyboard_input.pressed(KeyCode::Q) {
+        rot -= 1.0;
     }
+    if keyboard_input.pressed(KeyCode::E) {
+        rot += 1.0;
+    }
+    rot *= plate.rotate_speed * time.delta_seconds();
+    let delta_rot = Quat::from_rotation_y(rot);
+    let rotation = &mut transform.rotation;
+    *rotation *= delta_rot;
 }
 
 struct CheckLevelResultEvent();
@@ -613,98 +596,97 @@ fn cursor_movement_system(
     keyboard_input: Res<Input<KeyCode>>,
     buildables: Res<Buildables>,
     mut inventory: ResMut<Inventory>,
-    mut query: Query<(&mut Cursor, &mut Transform, &mut Visible)>,
+    mut query: Query<(&mut Cursor, &mut Transform, &mut Visibility)>,
 ) {
-    if let Ok((mut cursor, mut transform, mut visible)) = query.single_mut() {
-        // If cursor is disabled, do nothing
-        if !cursor.enabled() {
-            return;
-        }
+    let (mut cursor, mut transform, mut visible) = query.single_mut();
+    // If cursor is disabled, do nothing
+    if !cursor.enabled() {
+        return;
+    }
 
-        // Move cursor around the grid
-        let mut pos = cursor.pos;
-        if keyboard_input.just_pressed(KeyCode::Left) || keyboard_input.just_pressed(KeyCode::A) {
-            pos.x -= 1;
-        }
-        if keyboard_input.just_pressed(KeyCode::Right) || keyboard_input.just_pressed(KeyCode::D) {
-            pos.x += 1;
-        }
-        if keyboard_input.just_pressed(KeyCode::Up) || keyboard_input.just_pressed(KeyCode::W) {
-            pos.y += 1;
-        }
-        if keyboard_input.just_pressed(KeyCode::Down) || keyboard_input.just_pressed(KeyCode::S) {
-            pos.y -= 1;
-        }
-        pos = grid.clamp(pos);
-        if cursor.pos != pos {
-            cursor.pos = pos;
-            //let delta_pos = cursor.move_speed * time.delta_seconds();
-            let fpos = grid.fpos(&cursor.pos);
-            let translation = &mut transform.translation;
-            *translation = Vec3::new(fpos.x, 0.1, -fpos.y);
-        }
+    // Move cursor around the grid
+    let mut pos = cursor.pos;
+    if keyboard_input.just_pressed(KeyCode::Left) || keyboard_input.just_pressed(KeyCode::A) {
+        pos.x -= 1;
+    }
+    if keyboard_input.just_pressed(KeyCode::Right) || keyboard_input.just_pressed(KeyCode::D) {
+        pos.x += 1;
+    }
+    if keyboard_input.just_pressed(KeyCode::Up) || keyboard_input.just_pressed(KeyCode::W) {
+        pos.y += 1;
+    }
+    if keyboard_input.just_pressed(KeyCode::Down) || keyboard_input.just_pressed(KeyCode::S) {
+        pos.y -= 1;
+    }
+    pos = grid.clamp(pos);
+    if cursor.pos != pos {
+        cursor.pos = pos;
+        //let delta_pos = cursor.move_speed * time.delta_seconds();
+        let fpos = grid.fpos(&cursor.pos);
+        let translation = &mut transform.translation;
+        *translation = Vec3::new(fpos.x, 0.1, -fpos.y);
+    }
 
-        // Spawn buildable at cursor position
-        if keyboard_input.just_pressed(KeyCode::Space) {
-            if grid.can_spawn_item(&cursor.pos) {
-                if let Some(slot) = inventory.selected_slot_mut() {
-                    if let Some(buildable_ref) = slot.pop_item() {
-                        if let Some(buildable) = buildables.get(&buildable_ref) {
-                            let fpos = grid.fpos(&cursor.pos);
-                            debug!("Spawn buildable at pos={:?} fpos={:?}", cursor.pos, fpos);
-                            let entity = commands
-                                .spawn_bundle((
-                                    Transform::from_xyz(fpos.x, 0.1, -fpos.y),
-                                    GlobalTransform::identity(),
-                                ))
-                                .with_children(|parent| {
-                                    parent.spawn_scene(buildable.mesh().clone());
-                                })
-                                .insert(Parent(cursor.spawn_root_entity))
-                                .id();
-                            grid.spawn_item(&cursor.pos, buildable.weight(), entity);
-                            // Check if current slot has any item available left
-                            if slot.is_empty() {
-                                // Try to select another slot with some item(s) left
-                                if let Some(slot_index) = inventory.find_non_empty_slot_index() {
-                                    inventory.select_slot(&SelectSlot::Index(slot_index as usize));
-                                    let bref = inventory.selected_slot().unwrap().bref();
-                                    let buildable = buildables.get(bref).unwrap();
-                                    ev_update_slots.send(UpdateInventorySlots);
-                                } else {
-                                    // No more of any item in any slot; hide cursor and check level result
-                                    visible.is_visible = false;
-                                    ev_update_slots.send(UpdateInventorySlots);
-                                    ev_check_level.send(CheckLevelResultEvent {});
-                                }
-                            } else {
-                                // If current slot still has items, update anyway
+    // Spawn buildable at cursor position
+    if keyboard_input.just_pressed(KeyCode::Space) {
+        if grid.can_spawn_item(&cursor.pos) {
+            if let Some(slot) = inventory.selected_slot_mut() {
+                if let Some(buildable_ref) = slot.pop_item() {
+                    if let Some(buildable) = buildables.get(&buildable_ref) {
+                        let fpos = grid.fpos(&cursor.pos);
+                        debug!("Spawn buildable at pos={:?} fpos={:?}", cursor.pos, fpos);
+                        let entity = commands
+                            .spawn_bundle((
+                                Transform::from_xyz(fpos.x, 0.1, -fpos.y),
+                                GlobalTransform::identity(),
+                            ))
+                            .with_children(|parent| {
+                                parent.spawn_scene(buildable.mesh().clone());
+                            })
+                            .insert(Parent(cursor.spawn_root_entity))
+                            .id();
+                        grid.spawn_item(&cursor.pos, buildable.weight(), entity);
+                        // Check if current slot has any item available left
+                        if slot.is_empty() {
+                            // Try to select another slot with some item(s) left
+                            if let Some(slot_index) = inventory.find_non_empty_slot_index() {
+                                inventory.select_slot(&SelectSlot::Index(slot_index as usize));
+                                let bref = inventory.selected_slot().unwrap().bref();
+                                let buildable = buildables.get(bref).unwrap();
                                 ev_update_slots.send(UpdateInventorySlots);
+                            } else {
+                                // No more of any item in any slot; hide cursor and check level result
+                                visible.is_visible = false;
+                                ev_update_slots.send(UpdateInventorySlots);
+                                ev_check_level.send(CheckLevelResultEvent {});
                             }
+                        } else {
+                            // If current slot still has items, update anyway
+                            ev_update_slots.send(UpdateInventorySlots);
                         }
                     }
                 }
             }
         }
+    }
 
-        // Restart level
-        if keyboard_input.just_pressed(KeyCode::R) {
-            // Clear grid
-            grid.clear(Some(&mut commands));
-            // Reset inventory
-            let level_index = level.index();
-            let level_desc = &levels.levels()[level_index];
-            inventory.set_slots(
-                level_desc
-                    .inventory
-                    .iter()
-                    .map(|(bref, &count)| Slot::new(bref.clone(), count)),
-            );
-            // Re-show cursor
-            visible.is_visible = true;
-            // Update inventory slots
-            ev_update_slots.send(UpdateInventorySlots);
-        }
+    // Restart level
+    if keyboard_input.just_pressed(KeyCode::R) {
+        // Clear grid
+        grid.clear(Some(&mut commands));
+        // Reset inventory
+        let level_index = level.index();
+        let level_desc = &levels.levels()[level_index];
+        inventory.set_slots(
+            level_desc
+                .inventory
+                .iter()
+                .map(|(bref, &count)| Slot::new(bref.clone(), count)),
+        );
+        // Re-show cursor
+        visible.is_visible = true;
+        // Update inventory slots
+        ev_update_slots.send(UpdateInventorySlots);
     }
 }
 
@@ -714,15 +696,14 @@ fn plate_balance_system(
     levels: Res<Levels>,
     mut query: Query<(&Plate, &mut Transform)>,
 ) {
-    if let Ok((plate, mut transform)) = query.single_mut() {
-        let level_index = level.index();
-        let level = &levels.levels()[level_index];
-        let rot = grid.calc_rot(level.balance_factor);
-        transform.rotation = rot;
-    }
+    let (plate, mut transform) = query.single_mut();
+    let level_index = level.index();
+    let level = &levels.levels()[level_index];
+    let rot = grid.calc_rot(level.balance_factor);
+    transform.rotation = rot;
 }
 
-fn create_grid_tex() -> Texture {
+fn create_grid_image() -> Image {
     const TEX_SIZE: u32 = 32;
     let mut data = Vec::<u8>::with_capacity(TEX_SIZE as usize * TEX_SIZE as usize * 4);
     for j in 0..TEX_SIZE {
@@ -740,8 +721,12 @@ fn create_grid_tex() -> Texture {
             }
         }
     }
-    Texture::new(
-        Extent3d::new(TEX_SIZE, TEX_SIZE, 1),
+    Image::new(
+        Extent3d {
+            width: TEX_SIZE,
+            height: TEX_SIZE,
+            depth_or_array_layers: 1,
+        },
         TextureDimension::D2,
         data,
         TextureFormat::Rgba8Unorm,
@@ -758,7 +743,7 @@ fn setup3d(
     mut commands: Commands,
     mut grid: ResMut<Grid>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut textures: ResMut<Assets<Texture>>,
+    mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut ev_load_level: EventWriter<LoadLevelEvent>,
 ) {
@@ -772,9 +757,9 @@ fn setup3d(
     grid.set_size(&level.grid_size);
 
     // Create grid material
-    let grid_texture = textures.add(create_grid_tex());
+    let grid_image = images.add(create_grid_image());
     let grid_material = materials.add(StandardMaterial {
-        base_color_texture: Some(grid_texture),
+        base_color_texture: Some(grid_image),
         //unlit: true,
         ..Default::default()
     });
@@ -833,12 +818,17 @@ fn setup3d(
     cursor_entity_cmds.insert(cursor);
 
     // Light
-    commands.spawn_bundle(LightBundle {
-        light: Light {
-            intensity: 400.0,
+    commands.spawn_bundle(DirectionalLightBundle {
+        directional_light: DirectionalLight {
+            illuminance: 10000.0,
             ..Default::default()
         },
-        transform: Transform::from_xyz(-4.0, 3.0, 4.0),
+        transform: Transform::from_rotation(Quat::from_euler(
+            EulerRot::YXZ,
+            30_f32.to_degrees(),
+            30_f32.to_degrees(),
+            0.,
+        )),
         ..Default::default()
     });
 
@@ -920,7 +910,6 @@ fn spawn_end_screen(
     asset_server: Res<AssetServer>,
     ui_resouces: Res<UiResources>,
     mut commands: Commands,
-    mut materials2d: ResMut<Assets<ColorMaterial>>,
 ) {
     commands.spawn_bundle(UiCameraBundle::default());
 
@@ -932,8 +921,8 @@ fn spawn_end_screen(
                 justify_content: JustifyContent::Center,
                 ..Default::default()
             },
-            //material: materials2d.add(Color::NONE.into()),
-            material: materials2d.add(Color::rgb(0.15, 0.15, 0.15).into()),
+            //color: UiColor(Color::NONE),
+            color: UiColor(Color::rgb(0.15, 0.15, 0.15)),
             ..Default::default()
         })
         .with_children(|parent| {
@@ -954,7 +943,7 @@ fn spawn_end_screen(
 
                         ..Default::default()
                     },
-                    material: materials2d.add(Color::rgb(0.15, 0.15, 0.15).into()),
+                    color: UiColor(Color::rgb(0.15, 0.15, 0.15)),
                     ..Default::default()
                 })
                 //.insert(Parent(root_entity))
@@ -997,7 +986,7 @@ fn spawn_end_screen(
 
                         ..Default::default()
                     },
-                    material: materials2d.add(Color::rgb(0.15, 0.15, 0.15).into()),
+                    color: UiColor(Color::rgb(0.15, 0.15, 0.15)),
                     ..Default::default()
                 })
                 //.insert(Parent(root_entity))

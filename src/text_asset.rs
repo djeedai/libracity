@@ -40,7 +40,7 @@ impl AssetLoader for TextAssetLoader {
 pub struct TextAssetPlugin;
 
 impl Plugin for TextAssetPlugin {
-    fn build(&self, app: &mut AppBuilder) {
+    fn build(&self, app: &mut App) {
         app.add_asset::<TextAsset>()
             .init_asset_loader::<TextAssetLoader>();
     }

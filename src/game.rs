@@ -53,15 +53,14 @@ fn game_sequence(
     mut ev_check_level: EventReader<CheckLevelResultEvent>,
     mut ev_load_level: EventWriter<LoadLevelEvent>,
     mut app_state: ResMut<State<AppState>>,
-    mut query: Query<(&mut Cursor, &mut Visible)>,
+    mut query: Query<(&mut Cursor, &mut Visibility)>,
 ) {
     match game.sequence {
         GameSequence::Intro => {
             if game.timer.tick(time.delta()).just_finished() {
-                if let Ok((mut cursor, mut visible)) = query.single_mut() {
-                    cursor.set_enabled(true);
-                    visible.is_visible = true;
-                }
+                let (mut cursor, mut visibility) = query.single_mut();
+                cursor.set_enabled(true);
+                visibility.is_visible = true;
                 game.advance_sequence();
             }
         }
@@ -78,10 +77,9 @@ fn game_sequence(
                         "Victory! Level #{} '{}' cleared.",
                         level_index, level_desc.name
                     );
-                    if let Ok((mut cursor, mut visible)) = query.single_mut() {
-                        cursor.set_enabled(false);
-                        visible.is_visible = false;
-                    }
+                    let (mut cursor, mut visibility) = query.single_mut();
+                    cursor.set_enabled(false);
+                    visibility.is_visible = false;
                     game.advance_sequence();
                 }
             }
@@ -107,9 +105,8 @@ fn game_sequence(
 pub struct GamePlugin;
 
 impl Plugin for GamePlugin {
-    fn build(&self, app: &mut AppBuilder) {
-        app.insert_resource(Game::new()).add_system_set(
-            SystemSet::on_update(AppState::InGame).with_system(game_sequence.system()),
-        );
+    fn build(&self, app: &mut App) {
+        app.insert_resource(Game::new())
+            .add_system_set(SystemSet::on_update(AppState::InGame).with_system(game_sequence));
     }
 }

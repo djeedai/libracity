@@ -18,7 +18,7 @@ pub enum LoadLevel {
 pub struct LoadLevelEvent(pub LoadLevel);
 
 /// Marker for the Text component displaying the level name.
-#[derive(Debug)]
+#[derive(Debug, Component)]
 pub struct LevelNameText;
 
 /// Resource representing the current level being played.
@@ -58,7 +58,7 @@ fn change_level_system(
     grid: Res<Grid>,
     mut ev_load_level: EventReader<LoadLevelEvent>,
     mut query_level_name_text: Query<&mut Text, With<LevelNameText>>,
-    mut query_cursor: Query<(&Cursor, &mut Visible, &mut Transform)>,
+    mut query_cursor: Query<(&Cursor, &mut Visibility, &mut Transform)>,
     mut state: ResMut<State<AppState>>,
     mut ev_regen_ui: EventWriter<RegenerateInventoryUiEvent>,
     mut ev_reset_plate: EventWriter<ResetPlateEvent>,
@@ -131,17 +131,15 @@ fn change_level_system(
         );
 
         // Update level name in UI
-        if let Ok(mut text) = query_level_name_text.single_mut() {
-            text.sections[0].value = level_desc.name.clone();
-        }
+        let mut text = query_level_name_text.single_mut();
+        text.sections[0].value = level_desc.name.clone();
 
         // Show cursor
-        if let Ok((cursor, mut visible, mut transform)) = query_cursor.single_mut() {
-            visible.is_visible = true;
-            let cursor_fpos = grid.fpos(&cursor.pos);
-            *transform = Transform::from_translation(Vec3::new(cursor_fpos.x, 0.1, -cursor_fpos.y))
-                * Transform::from_scale(Vec3::new(1.0, 0.3, 1.0));
-        }
+        let (cursor, mut visibility, mut transform) = query_cursor.single_mut();
+        visibility.is_visible = true;
+        let cursor_fpos = grid.fpos(&cursor.pos);
+        *transform = Transform::from_translation(Vec3::new(cursor_fpos.x, 0.1, -cursor_fpos.y))
+            * Transform::from_scale(Vec3::new(1.0, 0.3, 1.0));
 
         // Regenerate inventory UI from new level data
         ev_regen_ui.send(RegenerateInventoryUiEvent);
@@ -161,7 +159,7 @@ pub enum LevelStage {
 pub struct LevelPlugin;
 
 impl Plugin for LevelPlugin {
-    fn build(&self, app: &mut AppBuilder) {
+    fn build(&self, app: &mut App) {
         // Add Level resource and event
         app.insert_resource(Level::new())
             .add_event::<LoadLevelEvent>();
@@ -173,6 +171,6 @@ impl Plugin for LevelPlugin {
             LevelStage::ChangeLevel,
             SystemStage::single_threaded(),
         )
-        .add_system_to_stage(LevelStage::ChangeLevel, change_level_system.system());
+        .add_system_to_stage(LevelStage::ChangeLevel, change_level_system);
     }
 }

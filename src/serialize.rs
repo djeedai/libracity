@@ -154,7 +154,7 @@ enum ConfigLoadState {
 pub struct SerializePlugin;
 
 impl Plugin for SerializePlugin {
-    fn build(&self, app: &mut AppBuilder) {
+    fn build(&self, app: &mut App) {
         app.insert_resource(Levels::new())
             .insert_resource(ConfigLoadState::Unloaded)
             .insert_resource(Buildables::new());
