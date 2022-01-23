@@ -8,7 +8,10 @@ use crate::{
 };
 use bevy::{app::AppExit, prelude::*};
 use bevy_kira_audio::{Audio, AudioSource};
-use std::collections::HashMap;
+use bevy_tweening::{
+    Animator, EaseFunction, EaseMethod, TextColorLens, TweeningType, UiPositionLens,
+};
+use std::{collections::HashMap, time::Duration};
 
 /// Main menu component.
 #[derive(Component)]
@@ -79,8 +82,30 @@ fn mainmenu_setup(
             .id(),
     );
 
+    let transparent_color = Color::NONE;
+    let background_color = Color::rgb(0.15, 0.15, 0.15);
+    let title_color = Color::rgb_u8(111, 188, 165);
+
+    // Background filling the entire screen
+    // Also using that as the hack of https://github.com/bevyengine/bevy/issues/676 to align the text
+    menu_data.entities.push(
+        commands
+            .spawn_bundle(NodeBundle {
+                style: Style {
+                    position: Rect::all(Val::Px(0.0)),
+                    position_type: PositionType::Absolute,
+                    ..Default::default()
+                },
+                color: UiColor(background_color),
+                ..Default::default()
+            })
+            .id(),
+    );
+
     // Title
-    // Using the NodeBundle from the hack of https://github.com/bevyengine/bevy/issues/676 as a background
+    let title_tweening = TweeningType::Once {
+        duration: Duration::from_secs(3),
+    };
     menu_data.entities.push(
         commands
             .spawn_bundle(NodeBundle {
@@ -99,24 +124,47 @@ fn mainmenu_setup(
 
                     ..Default::default()
                 },
-                color: UiColor(Color::rgb(0.15, 0.15, 0.15)),
+                color: UiColor(transparent_color),
                 ..Default::default()
             })
+            .insert(Animator::new(
+                EaseFunction::QuadraticInOut,
+                title_tweening,
+                UiPositionLens {
+                    start: Rect {
+                        left: Val::Px(0.0),
+                        right: Val::Px(0.0),
+                        top: Val::Px(30.0),
+                        bottom: Val::Px(0.0),
+                    },
+                    end: Rect::all(Val::Px(0.0)),
+                },
+            ))
             //.insert(Parent(root_entity))
             .with_children(|parent| {
                 // Title itself
-                parent.spawn_bundle(TextBundle {
-                    text: Text::with_section(
-                        "Libra City",
-                        TextStyle {
-                            font: title_font.clone(),
-                            font_size: 250.0,
-                            color: Color::rgb_u8(111, 188, 165),
+                parent
+                    .spawn_bundle(TextBundle {
+                        text: Text::with_section(
+                            "Libra City",
+                            TextStyle {
+                                font: title_font.clone(),
+                                font_size: 250.0,
+                                color: background_color,
+                            },
+                            text_align,
+                        ),
+                        ..Default::default()
+                    })
+                    .insert(Animator::new(
+                        EaseMethod::Linear,
+                        title_tweening,
+                        TextColorLens {
+                            start: background_color, // BUG #3204 // transparent_color,
+                            end: title_color,
+                            section: 0,
                         },
-                        text_align,
-                    ),
-                    ..Default::default()
-                });
+                    ));
             })
             .id(),
     );

@@ -15,6 +15,7 @@ use bevy::{
     },
     sprite::collide_aabb::{collide, Collision},
 };
+use bevy_tweening::TweeningPlugin;
 use bevy_kira_audio::{Audio, AudioChannel, AudioPlugin};
 //use bevy_prototype_debug_lines::{DebugLines, DebugLinesPlugin};
 use serde::Deserialize;
@@ -441,6 +442,8 @@ fn main() {
         .add_plugin(TextAssetPlugin)
         .add_plugin(SerializePlugin)
         .add_plugin(LoaderPlugin)
+        // Animation
+        .add_plugin(TweeningPlugin)
         // Game logic
         .add_plugin(GamePlugin)
         // Level management

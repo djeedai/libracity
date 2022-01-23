@@ -1,3 +1,7 @@
-/target
+
+# Build artifacts
+target
+release
+
+# Backup files
 *.blend1
-/release
