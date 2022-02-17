@@ -15,8 +15,8 @@ use bevy::{
     },
     sprite::collide_aabb::{collide, Collision},
 };
-use bevy_tweening::TweeningPlugin;
 use bevy_kira_audio::{Audio, AudioChannel, AudioPlugin};
+use bevy_tweening::TweeningPlugin;
 //use bevy_prototype_debug_lines::{DebugLines, DebugLinesPlugin};
 use serde::Deserialize;
 use std::{collections::HashMap, f32::consts::*, fs::File, io::Read};
@@ -851,37 +851,72 @@ fn setup3d(
     // UI camera
     commands.spawn_bundle(UiCameraBundle::default());
 
-    // Title
-    let title = commands
-        .spawn_bundle(TextBundle {
+    // Level name
+    let level_name = commands
+        .spawn_bundle(NodeBundle {
             style: Style {
-                align_self: AlignSelf::FlexEnd,
+                flex_direction: FlexDirection::Column,
                 position_type: PositionType::Absolute,
-                position: Rect {
-                    bottom: Val::Px(5.0),
-                    left: Val::Px(15.0),
-                    ..Default::default()
-                },
+                position: Rect::all(Val::Px(0.0)),
+                size: Size::new(Val::Percent(100.), Val::Percent(100.)),
                 ..Default::default()
             },
-            text: Text::with_section(
-                level.name.clone(),
-                TextStyle {
-                    font: asset_server.load("fonts/pacifico/Pacifico-Regular.ttf"),
-                    font_size: 100.0,
-                    color: Color::rgb_u8(111, 188, 165),
-                },
-                TextAlignment {
-                    horizontal: HorizontalAlign::Left,
-                    ..Default::default()
-                },
-            ),
+            visibility: Visibility { is_visible: false },
             ..Default::default()
         })
         .insert(Name::new("LevelName"))
-        .insert(LevelNameText) // marker to allow finding this text to change it
+        .with_children(|parent| {
+            parent
+                .spawn_bundle(NodeBundle {
+                    style: Style {
+                        align_self: AlignSelf::FlexEnd,
+                        position_type: PositionType::Relative,
+                        position: Rect {
+                            top: Val::Auto,
+                            bottom: Val::Auto,
+                            left: Val::Px(0.0),
+                            right: Val::Px(0.0),
+                        },
+                        size: Size::new(Val::Percent(100.), Val::Px(120.)),
+                        ..Default::default()
+                    },
+                    color: UiColor(Color::NONE), //Color::rgb(131. / 255., 156. / 255., 144. / 255.)),
+                    ..Default::default()
+                })
+                .insert(Name::new("Background"))
+                .with_children(|parent| {
+                    parent
+                        .spawn_bundle(TextBundle {
+                            style: Style {
+                                align_self: AlignSelf::FlexEnd,
+                                position_type: PositionType::Absolute,
+                                position: Rect {
+                                    bottom: Val::Px(5.0),
+                                    left: Val::Px(15.0),
+                                    ..Default::default()
+                                },
+                                ..Default::default()
+                            },
+                            text: Text::with_section(
+                                level.name.clone(),
+                                TextStyle {
+                                    font: asset_server.load("fonts/pacifico/Pacifico-Regular.ttf"),
+                                    font_size: 100.0,
+                                    color: Color::rgb_u8(111, 188, 165),
+                                },
+                                TextAlignment {
+                                    horizontal: HorizontalAlign::Left,
+                                    ..Default::default()
+                                },
+                            ),
+                            ..Default::default()
+                        })
+                        .insert(Name::new("Text"))
+                        .insert(LevelNameText); // marker to allow finding this text to change it
+                });
+        })
         .id();
-    entity_manager.all_entities.push(title);
+    entity_manager.all_entities.push(level_name);
 
     // Load first level by default (this allows skipping the main menu while developping)
     ev_load_level.send(LoadLevelEvent(LoadLevel::ByIndex(0)));

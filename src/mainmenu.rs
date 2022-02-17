@@ -9,7 +9,8 @@ use crate::{
 use bevy::{app::AppExit, prelude::*};
 use bevy_kira_audio::{Audio, AudioSource};
 use bevy_tweening::{
-    Animator, EaseFunction, EaseMethod, TextColorLens, TweeningType, UiPositionLens,
+    lens::{TextColorLens, UiPositionLens},
+    Animator, EaseFunction, EaseMethod, Tween, TweeningType,
 };
 use std::{collections::HashMap, time::Duration};
 
@@ -88,24 +89,44 @@ fn mainmenu_setup(
 
     // Background filling the entire screen
     // Also using that as the hack of https://github.com/bevyengine/bevy/issues/676 to align the text
-    menu_data.entities.push(
-        commands
-            .spawn_bundle(NodeBundle {
-                style: Style {
-                    position: Rect::all(Val::Px(0.0)),
-                    position_type: PositionType::Absolute,
-                    ..Default::default()
-                },
-                color: UiColor(background_color),
+    let root = commands
+        .spawn_bundle(NodeBundle {
+            style: Style {
+                position: Rect::all(Val::Px(0.0)),
+                position_type: PositionType::Absolute,
                 ..Default::default()
-            })
-            .id(),
-    );
+            },
+            color: UiColor(background_color),
+            ..Default::default()
+        })
+        .id();
+    menu_data.entities.push(root);
 
     // Title
-    let title_tweening = TweeningType::Once {
-        duration: Duration::from_secs(3),
-    };
+    let title_tween = Tween::new(
+        EaseFunction::QuadraticInOut,
+        TweeningType::Once,
+        Duration::from_secs(3),
+        UiPositionLens {
+            start: Rect {
+                left: Val::Px(0.0),
+                right: Val::Px(0.0),
+                top: Val::Px(30.0),
+                bottom: Val::Px(0.0),
+            },
+            end: Rect::all(Val::Px(0.0)),
+        },
+    );
+    let text_tween = Tween::new(
+        EaseMethod::Linear,
+        TweeningType::Once,
+        Duration::from_secs(3),
+        TextColorLens {
+            start: background_color, // BUG #3204 // transparent_color,
+            end: title_color,
+            section: 0,
+        },
+    );
     menu_data.entities.push(
         commands
             .spawn_bundle(NodeBundle {
@@ -127,20 +148,8 @@ fn mainmenu_setup(
                 color: UiColor(transparent_color),
                 ..Default::default()
             })
-            .insert(Animator::new(
-                EaseFunction::QuadraticInOut,
-                title_tweening,
-                UiPositionLens {
-                    start: Rect {
-                        left: Val::Px(0.0),
-                        right: Val::Px(0.0),
-                        top: Val::Px(30.0),
-                        bottom: Val::Px(0.0),
-                    },
-                    end: Rect::all(Val::Px(0.0)),
-                },
-            ))
-            //.insert(Parent(root_entity))
+            .insert(Animator::new(title_tween))
+            .insert(Parent(root))
             .with_children(|parent| {
                 // Title itself
                 parent
@@ -156,15 +165,7 @@ fn mainmenu_setup(
                         ),
                         ..Default::default()
                     })
-                    .insert(Animator::new(
-                        EaseMethod::Linear,
-                        title_tweening,
-                        TextColorLens {
-                            start: background_color, // BUG #3204 // transparent_color,
-                            end: title_color,
-                            section: 0,
-                        },
-                    ));
+                    .insert(Animator::new(text_tween));
             })
             .id(),
     );
@@ -189,13 +190,12 @@ fn mainmenu_setup(
                 color: UiColor(Color::rgb(0.15, 0.15, 0.15)),
                 ..Default::default()
             })
-            //.insert(Parent(root_entity))
+            .insert(Parent(root))
             .with_children(|parent| {
                 // Title itself
                 parent
                     .spawn_bundle(TextBundle {
                         text: Text {
-                            // Construct a `Vec` of `TextSection`s
                             sections: vec![
                                 TextSection {
                                     value: "Loading...".to_string(),
