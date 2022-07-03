@@ -14,6 +14,7 @@ use bevy::{
         render_resource::{Extent3d, PrimitiveTopology, Texture, TextureDimension, TextureFormat},
     },
     sprite::collide_aabb::{collide, Collision},
+    window::PresentMode,
 };
 use bevy_kira_audio::{Audio, AudioChannel, AudioPlugin};
 use bevy_tweening::TweeningPlugin;
@@ -378,11 +379,12 @@ fn main() {
         // Asset server configuration
         .insert_resource(AssetServerSettings {
             asset_folder: "assets".to_string(),
+            watch_for_changes: false,
         })
         // Main window
         .insert_resource(WindowDescriptor {
             title: "Libra City".to_string(),
-            vsync: true,
+            present_mode: PresentMode::Fifo, // vsync
             ..Default::default()
         });
 
@@ -517,7 +519,7 @@ fn inputs_system(
 
 fn create_line_mesh() -> Mesh {
     let mut mesh = Mesh::new(PrimitiveTopology::LineList);
-    mesh.set_attribute(
+    mesh.insert_attribute(
         Mesh::ATTRIBUTE_POSITION,
         vec![[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
     );
@@ -527,7 +529,7 @@ fn create_line_mesh() -> Mesh {
 
 fn create_axes_mesh() -> Mesh {
     let mut mesh = Mesh::new(PrimitiveTopology::LineList);
-    mesh.set_attribute(
+    mesh.insert_attribute(
         Mesh::ATTRIBUTE_POSITION,
         vec![
             [0.0, 0.0, 0.0],
@@ -538,7 +540,7 @@ fn create_axes_mesh() -> Mesh {
             [0.0, 0.0, 1.0],
         ],
     );
-    mesh.set_attribute(
+    mesh.insert_attribute(
         Mesh::ATTRIBUTE_COLOR,
         vec![
             [1.0, 0.0, 0.0],
